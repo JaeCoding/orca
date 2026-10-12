@@ -1,4 +1,5 @@
 import type { SessionOptionValue } from '../../shared/native-chat-session-options'
+import type { ProjectExecutionRuntimeResolution } from '../../shared/project-execution-runtime'
 import type { TuiAgent } from '../../shared/tui-agent'
 import type { AgentLaunchPreferences } from '../../shared/agent-session-host-authority'
 import {
@@ -27,6 +28,7 @@ import {
 import {
   agentLaunchPlatformForScope,
   agentLaunchProjectRuntime,
+  openCodeModelCheckPlatform,
   resolveAgentLaunchRuntime
 } from './agent-launch-scope-runtime'
 import { resolveQoderTerminalCommand } from './qoder-terminal-command-resolution'
@@ -74,19 +76,24 @@ export async function resolveAgentTerminalCreateOptions(
   const launchAgent = plannedAgent ?? opts.launchAgent
   // Before any early return: a host that cannot apply the requested shell must refuse rather than
   // spawn another one. Judged against the runtime this PTY's shell will come from.
-  const shellRefusal = terminalShellOverrideRefusal({
-    shellOverride: opts.shellOverride,
-    connectionId: workspace.connectionId,
-    platform: process.platform,
-    projectRuntime:
-      opts.shellOverride && store
-        ? plannedAgent || opts.launchRuntime
-          ? agentLaunchProjectRuntime(store, workspace, plannedAgent ?? opts.launchAgent)
-          : resolveLocalProjectRuntimeForWorktreeId(store, workspace.id)
-        : undefined,
-    cwd: resolveTerminalStartupCwd(workspace.path, opts.cwd) ?? workspace.path,
-    workspacePath: workspace.path
-  })
+  const refuseShell = (projectRuntime: ProjectExecutionRuntimeResolution | undefined) =>
+    terminalShellOverrideRefusal({
+      shellOverride: opts.shellOverride,
+      connectionId: workspace.connectionId,
+      platform: process.platform,
+      projectRuntime,
+      cwd: resolveTerminalStartupCwd(workspace.path, opts.cwd) ?? workspace.path,
+      workspacePath: workspace.path
+    })
+  const judgedStore = opts.shellOverride ? store : undefined
+  // TEMPORARY parity: main's project-only runtime still refuses an agent, then the agent's own.
+  const shellRefusal =
+    refuseShell(resolveLocalProjectRuntimeForWorktreeId(judgedStore, workspace.id)) ??
+    (judgedStore && (plannedAgent || opts.launchRuntime)
+      ? refuseShell(
+          agentLaunchProjectRuntime(judgedStore, workspace, plannedAgent ?? opts.launchAgent)
+        )
+      : null)
   if (shellRefusal) {
     throw shellRefusal
   }
@@ -101,6 +108,9 @@ export async function resolveAgentTerminalCreateOptions(
     }
     if (!store) {
       throw new Error('runtime_unavailable')
+    }
+    if (!isTuiAgentEnabled(opts.startupAgent, store.getSettings().disabledTuiAgents)) {
+      throw new Error(`Agent ${opts.startupAgent} is disabled. Choose an enabled agent.`)
     }
   }
   if (!launchAgent || !store) {
@@ -140,9 +150,6 @@ async function buildRuntimeAgentTerminalStartupOptions(
   // Why: `workspace.repo` is display metadata and may be a row from another host; the launch
   // shape must match the PTY route this scope already resolved.
   const isRemote = Boolean(workspace.connectionId)
-  if (opts.startupAgent && !isTuiAgentEnabled(opts.startupAgent, settings.disabledTuiAgents)) {
-    throw new Error(`Agent ${opts.startupAgent} is disabled. Choose an enabled agent.`)
-  }
   // A prompt this launch command cannot carry has nowhere to go from here — the create returns
   // options, not a live PTY — so refuse rather than spawn the agent and drop the text.
   if (opts.startupPrompt && !agentPromptRidesLaunchCommand(agent)) {
@@ -158,6 +165,9 @@ async function buildRuntimeAgentTerminalStartupOptions(
       shell: agentLaunchQuotingShell(runtime),
       sessionOptions: host.toSessionOptions(opts.launchPreferences)
     }),
+    ...(host.store
+      ? { modelCheckPlatform: openCodeModelCheckPlatform(host.store, workspace, runtime.platform) }
+      : {}),
     prompt: opts.startupPrompt ?? '',
     cwd: resolveTerminalStartupCwd(workspace.path, opts.cwd) ?? workspace.path,
     hostIdentity: host.hostIdentity,

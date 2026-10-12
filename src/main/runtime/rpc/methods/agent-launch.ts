@@ -38,7 +38,6 @@ import { defineMethod, type RpcContext } from '../core'
 import { admitAgentLaunchOperation, agentLaunchOperationCallerKey } from './agent-launch-replay'
 import {
   AgentLaunchExecutionError,
-  agentLaunchRefusalError,
   agentLaunchTabClosedAnswer,
   settleLaunchWhoseTabWasClosed,
   settleQuietly,
@@ -186,11 +185,12 @@ const activeAgentLaunchesByRuntime = new WeakMap<
 >()
 
 function activeAgentLaunchesFor(runtime: OrcaRuntimeService): Map<string, ActiveAgentLaunch> {
-  let active = activeAgentLaunchesByRuntime.get(runtime)
-  if (!active) {
-    active = new Map()
-    activeAgentLaunchesByRuntime.set(runtime, active)
+  const existing = activeAgentLaunchesByRuntime.get(runtime)
+  if (existing) {
+    return existing
   }
+  const active = new Map<string, ActiveAgentLaunch>()
+  activeAgentLaunchesByRuntime.set(runtime, active)
   return active
 }
 
@@ -219,7 +219,7 @@ async function executeReplaySafeAgentLaunch(
     // (a replay can remake the tab of an agent that survived).
     early?.finish()
     if (admission.decision === 'refuse') {
-      throw agentLaunchRefusalError(admission.refusal)
+      throw Object.assign(new Error(admission.refusal.code), { code: admission.refusal.code })
     }
     return admission.result
   }
@@ -267,7 +267,7 @@ async function executeAdmittedAgentLaunch(
       terminalSpawn
     )
     if (failedWithoutEffects) {
-      await settleQuietly(admission.fail(failedWithoutEffects, error))
+      await settleQuietly(admission.fail(failedWithoutEffects))
     }
     throw new AgentLaunchExecutionError(error, failedWithoutEffects !== null)
   }

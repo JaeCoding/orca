@@ -30,7 +30,6 @@ import type {
 import { resolveAgentSessionReplayOutcome } from '../../../native-chat/agent-session-wire/structured-agent-session-replay-outcome'
 import type { RpcContext } from '../core'
 import { rpcCallerOperationKey } from '../rpc-caller-identity'
-import { agentLaunchFailureMessage } from './agent-launch-failure-code'
 import type { AgentLaunchParams } from '../../../../shared/rpc-contract/agent-launch-params'
 
 /**
@@ -48,10 +47,9 @@ export function agentLaunchOperationCallerKey(context: Pick<RpcContext, 'caller'
  * `agent.launch` raises its refusals as the thrown code, the way the method's own guards do, so a
  * refusal here carries whatever code the operation recorded rather than the closed `agentSession.*`
  * envelope. An `AgentSessionWireRefusal` still fits, which is how the shared replay resolver's
- * answers pass through unchanged. `said` is the words a failed launch was refused with, for its
- * replay to repeat.
+ * answers pass through unchanged.
  */
-export type AgentLaunchRefusal = { code: string; message: string; said?: string }
+export type AgentLaunchRefusal = { code: string; message: string }
 
 export type AgentLaunchAdmission =
   /** This caller owns the operation. It alone runs the effect, and it must settle the row. */
@@ -61,8 +59,7 @@ export type AgentLaunchAdmission =
        *  the running agent instead of refusing an unknown outcome. */
       record: (provisional: AgentLaunchResult) => Promise<void>
       settle: (result: AgentLaunchResult) => Promise<void>
-      /** `cause` is the refusal, whose own words a coded one keeps for its replay. */
-      fail: (code: string, cause?: unknown) => Promise<void>
+      fail: (code: string) => Promise<void>
       /** Distinct from the launch id: the inner attach reserves in this same ledger. */
       attachOperationId: string
       callerKey: string
@@ -89,8 +86,7 @@ function answerFromRecordedRow(
       refusal: {
         code: outcome.code,
         message:
-          outcome.message ?? `Launch operation ${operationId} already failed: ${outcome.code}.`,
-        ...(outcome.message ? { said: outcome.message } : {})
+          outcome.message ?? `Launch operation ${operationId} already failed: ${outcome.code}.`
       }
     }
   }
@@ -263,14 +259,12 @@ export async function admitAgentLaunchOperation(
     // The same row shape twice: a build that predates the first write reads either one.
     record: succeeded,
     settle: succeeded,
-    fail: (code, cause) => {
-      const message = agentLaunchFailureMessage(cause)
-      return store.recordOperationOutcome({
+    fail: (code) =>
+      store.recordOperationOutcome({
         callerKey,
         operationId,
-        outcome: { status: 'failed', code, ...(message ? { message } : {}) }
+        outcome: { status: 'failed', code }
       })
-    }
   }
 }
 

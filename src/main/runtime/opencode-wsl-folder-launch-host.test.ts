@@ -3,7 +3,6 @@ import { OrcaRuntimeService } from './orca-runtime'
 import { RpcDispatcher } from './rpc/dispatcher'
 import { AGENT_SESSION_METHODS } from './rpc/methods/agent-session'
 import { _resetWslCachesForTests, _setWslCachesForTests } from '../wsl'
-import { PROJECT_RUNTIME_REPAIR_REQUIRED_CODE } from '../../shared/project-runtime-repair-message'
 
 vi.mock('../opencode/opencode-launch-capabilities', () => ({
   probeOpenCodeLaunchCapabilities: async () => ({
@@ -18,6 +17,7 @@ vi.mock('../opencode/opencode-model-availability', () => ({
 }))
 
 const repo = { id: 'r', path: 'C:\\repo', kind: 'git', projectGroupId: 'g' }
+const share = { id: 's', path: '\\\\wsl$\\Ubuntu\\s', kind: 'git', projectGroupId: 'g' }
 const folder = { id: 'f', projectGroupId: 'g', folderPath: 'C:\\work' }
 const wsl = { kind: 'wsl', distro: 'Ubuntu' }
 const store = {
@@ -27,8 +27,11 @@ const store = {
     terminalWindowsShell: 'wsl.exe',
     terminalWindowsWslDistro: 'Ubuntu'
   }),
-  getProjects: () => [{ id: 'p', sourceRepoIds: ['r'], localWindowsRuntimePreference: wsl }],
-  getRepo: (id: string) => (id === 'r' ? repo : undefined),
+  getProjects: () => [
+    { id: 'p', sourceRepoIds: ['r'], localWindowsRuntimePreference: wsl },
+    { id: 'q', sourceRepoIds: ['s'], localWindowsRuntimePreference: { kind: 'windows-host' } }
+  ],
+  getRepo: (id: string) => [repo, share].find((entry) => entry.id === id),
   getRepos: () => [repo],
   getFolderWorkspaces: () => [folder],
   getProjectGroups: () => [{ id: 'g' }]
@@ -69,15 +72,25 @@ it('starts, resumes and checks models for OpenCode in a WSL folder on Windows', 
   expect(await runtime.probeOrchestrationOpenCodeModelLaunchSupport(target)).toBe(true)
 })
 
-// W5d: a folder whose repo's distro is gone is refused before any spawn, in the settings' words.
-it('refuses an agent whose WSL distro is gone, under its own code', async () => {
+// TEMPORARY parity: a folder whose repo's distro is gone is refused before any spawn, in the words
+// main's spawn refuses such a repo with.
+it('refuses an agent whose WSL distro is gone, as the spawn did', async () => {
   _setWslCachesForTests({ available: true, distros: ['Debian'] })
   const params = { clientOperationId, worktree: 'id:f', agent: 'codex' }
   const call = { id: '1', authToken: 't', method: 'terminal.createAgentSession', params }
   const response = await new RpcDispatcher({ runtime, methods: AGENT_SESSION_METHODS }).dispatch(
     call
   )
-  const message =
-    'No agent was started. Ubuntu is not installed in WSL. Choose an installed distro or switch this project to Windows.'
-  expect(response).toMatchObject({ error: { code: PROJECT_RUNTIME_REPAIR_REQUIRED_CODE, message } })
+  const message = 'Project runtime requires repair before terminal spawn: wsl-distro-missing'
+  expect(response).toMatchObject({ error: { code: 'runtime_error', message } })
+})
+
+// TEMPORARY parity: in a `\\wsl$` repo set to Windows host, OpenCode's model is checked on Windows,
+// as on main; its command is still written for Linux, where it runs.
+it('checks an OpenCode model on Windows in a WSL-share repo set to Windows host', async () => {
+  const shareScope = { ...scope, id: 's', path: share.path, repo: share, folderWorkspace: null }
+  Object.assign(runtime, { resolveTerminalWorkspaceLaunchScope: async () => shareScope })
+  const request = { clientOperationId, worktree: 'id:s', agent: 'opencode' } as const
+  await runtime.createAgentSession({ ...request, launchPreferences: { model: 'm' } })
+  expect(spawned()).toEqual(['linux'])
 })

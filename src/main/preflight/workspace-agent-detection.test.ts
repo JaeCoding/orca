@@ -19,6 +19,7 @@ import {
   resolveWorkspaceAgentDetectionHost,
   type WorkspaceAgentDetectionStore
 } from './workspace-agent-detection'
+import { _resetWslCachesForTests, _setWslCachesForTests } from '../wsl'
 
 const { detectInstalledMock, refreshMock } = vi.hoisted(() => ({
   detectInstalledMock: vi.fn(),
@@ -138,6 +139,7 @@ describe('resolveWorkspaceAgentDetectionHost on a Windows host', () => {
   })
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: originalPlatform })
+    _resetWslCachesForTests()
   })
 
   it('keeps the host default for a workspace no repo row owns', () => {
@@ -176,6 +178,15 @@ describe('resolveWorkspaceAgentDetectionHost on a Windows host', () => {
     expect(resolveFor(s, `r1::${WSL_REPO_PATH}`)).toEqual({
       kind: 'local',
       context: wslContext('Ubuntu-24.04', 'r1', 'project-override')
+    })
+  })
+
+  // TEMPORARY parity: the agent list checks a WSL-share path's distro against main's cached list.
+  it("checks a WSL-share workspace's distro against the cached list, as main does", () => {
+    _setWslCachesForTests({ available: true, distros: ['Debian'] })
+    const s = store({ repos: [repo({ id: 'r1', path: WSL_REPO_PATH })] })
+    expect(resolveFor(s, `r1::${WSL_REPO_PATH}`)).toMatchObject({
+      context: { projectRuntime: { status: 'repair-required' } }
     })
   })
 
