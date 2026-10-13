@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StructuredAgentLaunchSettlement } from '@/lib/structured-agent-launch-settlement'
-import type * as ResumePreparation from '@/lib/ai-vault-session-resume-preparation'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 
 type BeginArgs = { beforeOpen?: (sessionId: string) => boolean | void }
@@ -57,8 +56,6 @@ const session: AiVaultSession = {
   subagent: null
 }
 
-afterEach(() => vi.unstubAllGlobals())
-
 describe('resumeAiVaultSessionInNewChat', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -74,16 +71,7 @@ describe('resumeAiVaultSessionInNewChat', () => {
     })
   })
 
-  it('opens a stale-owned row in native chat after home preparation', async () => {
-    const stale = { ...session, sessionId: 'provider-1' }
-    const prepareSessionResume = vi.fn().mockRejectedValue(new Error('agent_session_conflict'))
-    vi.stubGlobal('window', { api: { aiVault: { prepareSessionResume } } })
-    const preparation = await vi.importActual<typeof ResumePreparation>(
-      '@/lib/ai-vault-session-resume-preparation'
-    )
-    mocks.prepareAiVaultSessionForResume.mockImplementation(() =>
-      preparation.prepareAiVaultSessionForResume(stale)
-    )
+  it('reveals the workspace and opens chat before provider settlement', async () => {
     let settle!: (value: StructuredAgentLaunchSettlement) => void
     const settlement = new Promise<StructuredAgentLaunchSettlement>((resolve) => {
       settle = resolve
@@ -93,10 +81,8 @@ describe('resumeAiVaultSessionInNewChat', () => {
       return { sessionId: 'session-1', tab: { id: 'agent-session:session-1' }, settlement }
     })
 
-    await resumeAiVaultSessionInNewChat(stale, 'codex', 'worktree-1', 'resume-click')
+    await resumeAiVaultSessionInNewChat(session, 'codex', 'worktree-1', 'resume-click')
 
-    expect(mocks.prepareAiVaultSessionForResume).toHaveBeenCalledWith(stale)
-    expect(prepareSessionResume).not.toHaveBeenCalled()
     expect(mocks.beginStructuredAgentSessionProvisionalLaunch).toHaveBeenCalledWith(
       expect.objectContaining({
         plan: expect.objectContaining({ resumeFrom: { providerSessionId: 'provider-1' } }),

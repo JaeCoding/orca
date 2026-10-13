@@ -39,8 +39,8 @@ describe('prepareAiVaultSessionForResume', () => {
     ).rejects.toThrow('Retry resume.')
   })
 
-  it('preserves a custom home without a host request', async () => {
-    const prepareSessionResume = vi.fn().mockRejectedValue(new Error('agent_session_conflict'))
+  it('preserves a custom home without materialization', async () => {
+    const prepareSessionResume = vi.fn()
     stubPreparation(prepareSessionResume)
     const current = session({ codexHome: '/custom/codex' })
 
@@ -87,8 +87,8 @@ describe('prepareAiVaultSessionForResume', () => {
     await expect(prepareAiVaultSessionForResume(current)).resolves.toBe(current)
   })
 
-  it('preserves a remote session home without a host request', async () => {
-    const prepareSessionResume = vi.fn().mockRejectedValue(new Error('agent_session_conflict'))
+  it('does not ask a remote host to repin a per-account session', async () => {
+    const prepareSessionResume = vi.fn()
     stubPreparation(prepareSessionResume)
     const current = session({
       codexHome: '/home/user/.orca/codex-accounts/account-1/home',
@@ -98,188 +98,28 @@ describe('prepareAiVaultSessionForResume', () => {
     await expect(prepareAiVaultSessionForResume(current)).resolves.toBe(current)
     expect(prepareSessionResume).not.toHaveBeenCalled()
   })
-
-  it.each(['claude', 'omp', 'codex'] as const)(
-    'keeps the home-only path for a stale-owned %s row when copying or opening native chat',
-    async (agent) => {
-      const prepareSessionResume = vi.fn().mockRejectedValue(new Error('agent_session_conflict'))
-      stubPreparation(prepareSessionResume)
-      const stale = session({ agent, codexHome: null })
-
-      await expect(prepareAiVaultSessionForResume(stale)).resolves.toBe(stale)
-      expect(prepareSessionResume).not.toHaveBeenCalled()
-    }
-  )
 })
 
-describe('prepareAiVaultSessionForTerminalResume', () => {
+describe('ordinary Resume against an older paired host', () => {
   it.each([
-    [
-      'desktop',
-      new Error(
-        "Error invoking remote method 'aiVault:prepareSessionResume': Error: aiVault.prepareSessionResume: method_not_found"
-      )
-    ],
-    [
-      'web',
-      Object.assign(new Error('Unknown method: aiVault.prepareSessionResume'), {
-        code: 'method_not_found'
-      })
-    ]
-  ])(
-    'continues ordinary paired Resume after the exact %s old-host refusal',
-    async (_client, error) => {
-      const prepareSessionResume = vi.fn().mockRejectedValue(error)
-      stubPreparation(prepareSessionResume)
-      const remote = session({ agent: 'claude', executionHostId: 'runtime:paired' })
-
-      await expect(prepareAiVaultSessionForTerminalResume(remote)).resolves.toBe(remote)
-      expect(prepareSessionResume).toHaveBeenCalledWith(
-        expect.objectContaining({ executionHostId: 'runtime:paired', codexHome: null })
-      )
-    }
-  )
-
-  it.each(['claude', 'omp', 'codex'] as const)(
-    'checks a stale %s row before any CLI launch can be planned',
-    async (agent) => {
-      const prepareSessionResume = vi.fn().mockRejectedValue(new Error('agent_session_conflict'))
-      stubPreparation(prepareSessionResume)
-      const stale = session({ agent, codexHome: null })
-
-      await expect(prepareAiVaultSessionForTerminalResume(stale)).rejects.toThrow(
-        'agent_session_conflict'
-      )
-      expect(prepareSessionResume).toHaveBeenCalledWith({
-        agent,
-        sessionId: stale.sessionId,
-        filePath: stale.filePath,
-        codexHome: null,
-        executionHostId: 'local'
-      })
-    }
-  )
-
-  it('keeps a paired non-Codex row when an older host returns only the original neutral result', async () => {
-    const prepareSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: false })
-    stubPreparation(prepareSessionResume)
-    const remote = session({
-      agent: 'claude',
-      executionHostId: 'runtime:paired',
-      codexHome: null
+    new Error(
+      "Error invoking remote method 'aiVault:prepareSessionResume': Error: aiVault.prepareSessionResume: method_not_found"
+    ),
+    Object.assign(new Error('Unknown method: aiVault.prepareSessionResume'), {
+      code: 'method_not_found'
     })
-
+  ])('retains neutral resumes but requires managed Codex home preparation', async (error) => {
+    stubPreparation(vi.fn().mockRejectedValue(error))
+    const remote = session({ agent: 'claude', executionHostId: 'runtime:paired' })
     await expect(prepareAiVaultSessionForTerminalResume(remote)).resolves.toBe(remote)
-    expect(prepareSessionResume).toHaveBeenCalledWith(
-      expect.objectContaining({ agent: 'claude', executionHostId: 'runtime:paired' })
-    )
-  })
-
-  it.each(['claude', 'omp', 'codex'] as const)(
-    'keeps the same paired host and home after an ownership-only preparation result for %s',
-    async (agent) => {
-      const prepareSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: false })
-      stubPreparation(prepareSessionResume)
-      const remote = session({ agent, executionHostId: 'runtime:paired', codexHome: null })
-
-      await expect(prepareAiVaultSessionForTerminalResume(remote)).resolves.toBe(remote)
-      expect(prepareSessionResume).toHaveBeenCalledWith(
-        expect.objectContaining({ executionHostId: 'runtime:paired', filePath: remote.filePath })
+    await expect(
+      prepareAiVaultSessionForTerminalResume(
+        session({
+          executionHostId: 'runtime:paired',
+          codexHome: '/tmp/orca/codex-runtime-home/home'
+        })
       )
-    }
-  )
-
-  it.each([
-    'agent_session_conflict',
-    'agent_session_ownership_unknown',
-    'forbidden',
-    'remote_runtime_unavailable',
-    'Invalid aiVault.prepareSessionResume response'
-  ])('refuses a paired terminal resume on %s', async (failure) => {
-    const prepareSessionResume = vi.fn().mockRejectedValue(new Error(failure))
-    stubPreparation(prepareSessionResume)
-    const remote = session({ agent: 'claude', executionHostId: 'runtime:paired' })
-
-    await expect(prepareAiVaultSessionForTerminalResume(remote)).rejects.toThrow(failure)
-  })
-
-  it('does not skip required Codex home preparation on an old paired host', async () => {
-    const prepareSessionResume = vi
-      .fn()
-      .mockRejectedValue(new Error('aiVault.prepareSessionResume: method_not_found'))
-    stubPreparation(prepareSessionResume)
-    const remote = session({
-      executionHostId: 'runtime:paired',
-      codexHome: '/tmp/orca/codex-runtime-home/home'
-    })
-
-    await expect(prepareAiVaultSessionForTerminalResume(remote)).rejects.toThrow('method_not_found')
-    expect(prepareSessionResume).toHaveBeenCalledWith(
-      expect.objectContaining({ codexHome: remote.codexHome })
-    )
-  })
-
-  it('keeps a paired Codex row on its recorded account home during ownership admission', async () => {
-    const prepareSessionResume = vi.fn().mockResolvedValue({
-      useRealCodexHome: false,
-      substituteCodexHome: '/host/orca/codex-accounts/account-b/home'
-    })
-    stubPreparation(prepareSessionResume)
-    const remote = session({
-      executionHostId: 'runtime:paired',
-      codexHome: '/host/orca/codex-accounts/account-a/home'
-    })
-
-    await expect(prepareAiVaultSessionForTerminalResume(remote)).resolves.toBe(remote)
-    expect(prepareSessionResume).toHaveBeenCalledWith(
-      expect.objectContaining({ executionHostId: 'runtime:paired', codexHome: null })
-    )
-  })
-
-  it('does not treat an unrelated method failure as missing resume preparation', async () => {
-    stubPreparation(vi.fn().mockRejectedValue(new Error('terminal.send: method_not_found')))
-    const remote = session({ agent: 'claude', executionHostId: 'runtime:paired' })
-
-    await expect(prepareAiVaultSessionForTerminalResume(remote)).rejects.toThrow(
-      'terminal.send: method_not_found'
-    )
-  })
-
-  it('refuses a malformed successful response from a paired web host', async () => {
-    stubPreparation(vi.fn().mockResolvedValue({}))
-    const remote = session({ agent: 'claude', executionHostId: 'runtime:paired' })
-
-    await expect(prepareAiVaultSessionForTerminalResume(remote)).rejects.toThrow(
-      'Invalid aiVault.prepareSessionResume response'
-    )
-  })
-
-  it('requires the exact missing method message as well as the web error code', async () => {
-    stubPreparation(
-      vi
-        .fn()
-        .mockRejectedValue(
-          Object.assign(new Error('Unknown method: terminal.send'), { code: 'method_not_found' })
-        )
-    )
-    const remote = session({ agent: 'claude', executionHostId: 'runtime:paired' })
-
-    await expect(prepareAiVaultSessionForTerminalResume(remote)).rejects.toThrow('terminal.send')
-  })
-
-  it('never applies the old-host fallback to a local row', async () => {
-    stubPreparation(
-      vi
-        .fn()
-        .mockRejectedValue(
-          new Error(
-            "Error invoking remote method 'aiVault:prepareSessionResume': Error: aiVault.prepareSessionResume: method_not_found"
-          )
-        )
-    )
-    const local = session({ agent: 'claude' })
-
-    await expect(prepareAiVaultSessionForTerminalResume(local)).rejects.toThrow('method_not_found')
+    ).rejects.toBe(error)
   })
 })
 

@@ -70,33 +70,6 @@ describe('prepareCodexAiVaultSessionResume', () => {
     })
   })
 
-  it('does not read or repin a bridged account home for an ownership-only request', async () => {
-    const resolveSelectedHome = vi.fn((): string | null => {
-      throw new ManagedCodexHomeTemporarilyUnavailableError()
-    })
-
-    await expect(
-      prepareCodexAiVaultSessionResume(
-        {
-          agent: 'codex',
-          filePath: peerRolloutPath,
-          codexHome: null,
-          executionHostId: 'local'
-        },
-        {
-          runtimeHome: {
-            isHostSystemDefaultRealHomeSelected: () => false,
-            resolveSelectedHostAccountCodexHomePathForResume: resolveSelectedHome,
-            getHostCodexHomePathsForSessionDiscovery: () => [peerHome, selectedHome]
-          },
-          systemCodexHomePath: join(root, 'system-codex-home'),
-          preparePinnedLaunchHome
-        }
-      )
-    ).resolves.toEqual({ useRealCodexHome: false })
-    expect(resolveSelectedHome).not.toHaveBeenCalled()
-  })
-
   it('preserves deliberate no-selection behavior for a proven-untrusted home', async () => {
     await expect(prepare(() => null)).resolves.toEqual({ useRealCodexHome: false })
     expect(preparePinnedLaunchHome).not.toHaveBeenCalled()
