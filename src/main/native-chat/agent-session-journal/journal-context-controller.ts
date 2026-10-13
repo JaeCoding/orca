@@ -1,7 +1,4 @@
-import type {
-  AgentJournalCursor,
-  AgentSessionJournalIdentity
-} from '../../../shared/agent-session-journal-types'
+import type { AgentJournalCursor } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionProviderContextBoundary } from '../../../shared/agent-session-provider-context'
 import { latestAgentSessionContextClearSequence } from '../../../shared/agent-session-context-clear'
 import { appendJournalContextClear } from './journal-context-clear'
@@ -17,8 +14,6 @@ export class JournalContextController {
       state: () => JournalReducerState
       writer: JournalRowWriter
       cards: JournalQueuedMessages
-      /** Whose handle a restated send's submission row names. */
-      identity: AgentSessionJournalIdentity
     }
   ) {}
 

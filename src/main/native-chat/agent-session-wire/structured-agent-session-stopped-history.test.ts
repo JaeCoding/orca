@@ -1,7 +1,7 @@
-// A message a person sent and then stopped before the agent started on it goes into the agent's own
-// log at their next send, ahead of it, at most once; an agent that cannot append carries it in that
-// send instead. Against the real host, store and journal, with an agent that stays starting until
-// the test proves its start.
+// A message a person sent and then stopped before the agent started on it reaches the agent with
+// their next send, at most once: carried at the front of a words-only send, or injected into the
+// agent's own log ahead of the send where it can take it. Against the real host, store and
+// journal, with an agent that stays starting until the test proves its start.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -10,14 +10,11 @@ import {
 } from '../../../shared/agent-session-failure'
 import { agentSessionFailureWords } from '../../../shared/agent-session-failure-words'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
-import type { OwedStoppedMessage } from '../../../shared/agent-session-stopped-history'
+import { STOPPED_MESSAGE_INTERRUPTED_MARKER } from '../../../shared/agent-session-stopped-history'
 import { projectStructuredAgentSessionMessages } from '../../../shared/structured-agent-session-message-projection'
 import { isStructuredAgentSessionMainAgentWorking } from '../../../shared/structured-agent-session-main-agent-working'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
-import {
-  RigPreparedDispatch,
-  type QueuedRigProviderOptions
-} from './structured-agent-session-queued-message-rig-provider.test-fixture'
+import type { QueuedRigProviderOptions } from './structured-agent-session-queued-message-rig-provider.test-fixture'
 import {
   createQueuedMessageTestRig,
   eventually,
@@ -49,27 +46,30 @@ function journal(): AgentSessionJournal {
 }
 
 function text(body: AgentJournalMessageItem): string {
-  return body.blocks.map((block) => (block.type === 'text' ? block.text : '')).join('')
+  return body.blocks.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n')
 }
 
-/** Each append, as the texts of the stopped messages it wrote. */
-function appended(): string[][] {
-  return rig.appendStoppedMessages.mock.calls.map(([input]) =>
-    input.messages.map((entry) => text(entry.body))
+/** What a send carrying `stopped` ahead of `own` hands the agent. */
+function carrying(stopped: string[], own: string): string {
+  return (
+    stopped.map((words) => `${words}\n\n${STOPPED_MESSAGE_INTERRUPTED_MARKER}\n\n`).join('') + own
   )
 }
 
-/** Each dispatch as `carrier <- [history]`, the history as the prepared send carries it. */
+/** Each dispatch's words, as the agent gets them. */
 function dispatched(): string[] {
-  return rig.dispatch.mock.calls.map(([input]) => {
-    const prepared = input.prepared instanceof RigPreparedDispatch ? input.prepared : null
-    expect(input.prepared === undefined || prepared !== null).toBe(true)
-    return prepared ? `${text(input.body)} <- [${prepared.history.join(', ')}]` : text(input.body)
-  })
+  return rig.dispatch.mock.calls.map(([input]) => text(input.body))
 }
 
-function sendRequest(body: string) {
-  const message = hostTestMessage(body)
+/** Each injection, as the words of the stopped messages it wrote. */
+function injected(): string[][] {
+  return rig.injectStoppedMessages.mock.calls.map(([input]) =>
+    input.messages.map((entry) => entry.words)
+  )
+}
+
+function sendRequest(body: string | AgentJournalMessageItem) {
+  const message = typeof body === 'string' ? hostTestMessage(body) : body
   return {
     envelope: rig.envelope({ body: message }, 'agentSession.send', hostTestOperationId()),
     body: message,
@@ -111,9 +111,19 @@ async function stopWhileStarting(...texts: string[]): Promise<string[]> {
 }
 
 /** The person's next send, handed to a child that proved its start. */
-async function nextSend(body: string, options: Parameters<QueuedMessageTestRig['send']>[2] = {}) {
+async function nextSend(
+  body: string | AgentJournalMessageItem,
+  options: Parameters<QueuedMessageTestRig['send']>[2] = {}
+) {
   const before = rig.dispatch.mock.calls.length
-  const { id, result } = rig.send(body, undefined, options)
+  const request = typeof body === 'string' ? null : sendRequest(body)
+  const { id, result } =
+    typeof body === 'string'
+      ? rig.send(body, undefined, options)
+      : {
+          id: request!.envelope.clientOperationId,
+          result: rig.host.send(QUEUED_RIG_CALLER, request!)
+        }
   expect(await result).toMatchObject({ ok: true })
   if (rig.host.collaboratorsForTests().sessions.get(SESSION)?.child?.phase !== 'ready') {
     await rig.proveStart()
@@ -178,22 +188,15 @@ async function transcript(): Promise<string[]> {
   )
 }
 
-describe("stopped messages go into the agent's own log ahead of the next send", () => {
-  it('appends both messages a Stop withdrew while the agent started, in order, before the send', async () => {
+describe('stopped messages ride at the front of the next words-only send', () => {
+  it('carries both a Stop withdrew while the agent started, in order, named on the handover row', async () => {
     await start()
     const [first, second] = await stopWhileStarting('first', 'second')
+    const next = await nextSend('what did I send?')
 
-    await nextSend('what did I send?')
-
-    expect(appended()).toEqual([['first', 'second']])
-    expect(dispatched()).toEqual(['what did I send?'])
-    expect(rig.appendStoppedMessages.mock.invocationCallOrder[0]).toBeLessThan(
-      rig.dispatch.mock.invocationCallOrder[0]!
-    )
-    expect(
-      [...journal().stoppedHistory.appended().values()].map((append) => append.messageIds)
-    ).toEqual([[first, second]])
-    // The work outcome is untouched: each stopped message still reads Stopped manually, once.
+    expect(dispatched()).toEqual([carrying(['first', 'second'], 'what did I send?')])
+    expect(journal().stoppedHistory.carried().get(next)).toEqual([first, second])
+    // Nothing changes in the chat: each still reads Stopped manually, the send shows its own words.
     for (const id of [first!, second!]) {
       expect(await rig.submission(id)).toMatchObject({
         dispatchState: 'rejected',
@@ -208,103 +211,77 @@ describe("stopped messages go into the agent's own log ahead of the next send", 
     ])
   })
 
-  it('appends nothing again once the agent took them', async () => {
+  it('carries nothing again once the agent took them', async () => {
     await start()
     await stopWhileStarting('first')
     const carrier = await nextSend('carrier')
     await rig.settleAccepted(carrier, 'carrier')
     await nextSend('after')
 
-    expect(appended()).toEqual([['first']])
-    expect(dispatched()).toEqual(['carrier', 'after'])
+    expect(dispatched()).toEqual([carrying(['first'], 'carrier'), 'after'])
   })
 
-  it('appends them again at the next send when the agent proved it refused them', async () => {
+  it('a send with an attachment carries nothing; the next words-only send does', async () => {
     await start()
     await stopWhileStarting('first')
-    // As Codex answers when its child ended while the append read its images: nothing written.
-    rig.appendStoppedMessages.mockResolvedValueOnce({
-      outcome: 'refused',
-      reason: 'Codex ended before the append'
+    const shot = await nextSend({
+      kind: 'message',
+      role: 'user',
+      blocks: [
+        { type: 'text', text: 'see' },
+        { type: 'image-ref', path: '/tmp/shot.png' }
+      ]
     })
-    const carrier = await nextSend('carrier')
-    await rig.settleAccepted(carrier, 'carrier')
+    await rig.settleAccepted(shot, 'shot')
     await nextSend('after')
 
-    expect(appended()).toEqual([['first'], ['first']])
-    expect(dispatched()).toEqual(['carrier', 'after'])
-    expect(journal().stoppedHistory.appended().size).toBe(1)
+    expect(dispatched()).toEqual(['see', carrying(['first'], 'after')])
   })
 
-  it('writes no row while the agent answers it cannot take them, and appends them once it can', async () => {
+  it('a carrier refused before any write leaves them owed: the next send carries them again', async () => {
+    await start()
+    await stopWhileStarting('first', 'second')
+    rig.dispatch.mockResolvedValueOnce({
+      state: 'rejected',
+      ...agentSessionFailureWords(agentSessionFailureFact('writeFailed'), { surface: 'rejection' })
+    })
+    await nextSend('refused')
+    await nextSend('again')
+
+    expect(dispatched()).toEqual([
+      carrying(['first', 'second'], 'refused'),
+      carrying(['first', 'second'], 'again')
+    ])
+  })
+
+  it('a carrier in doubt is never re-sent, nor what it carried', async () => {
     await start()
     await stopWhileStarting('first')
-    // As Codex mid-turn or Claude woken by a background task answers.
-    rig.stoppedMessageDelivery.mockReturnValueOnce('none')
-    const recordAppend = vi.spyOn(journal().stoppedHistory, 'recordAppend')
-    const busy = await nextSend('busy')
-    await rig.settleAccepted(busy, 'busy')
-
-    expect(recordAppend).not.toHaveBeenCalled()
-    expect(appended()).toEqual([])
+    const carrier = await nextSend('carrier')
+    await settle(carrier, { kind: 'unknown' })
     await nextSend('after')
-    expect(appended()).toEqual([['first']])
-    expect(recordAppend).toHaveBeenCalledTimes(1)
-    expect(dispatched()).toEqual(['busy', 'after'])
+
+    expect(dispatched()).toEqual([carrying(['first'], 'carrier'), 'after'])
   })
 
-  it('never appends them again when the outcome is unknown, or the append threw', async () => {
-    for (const fails of [
-      () =>
-        rig.appendStoppedMessages.mockResolvedValueOnce({
-          outcome: 'unknown',
-          reason: 'timed out'
-        }),
-      () => rig.appendStoppedMessages.mockRejectedValueOnce(new Error('lost contact'))
-    ]) {
-      await start()
-      await stopWhileStarting('first')
-      fails()
-      const carrier = await nextSend('carrier')
-      await rig.settleAccepted(carrier, 'carrier')
-      await nextSend('after')
-
-      // The send goes on whatever came of the append.
-      expect(appended()).toEqual([['first']])
-      expect(dispatched()).toEqual(['carrier', 'after'])
-      await rig.dispose()
-    }
+  it('a carrier Pi refused at its sign-in check leaves them owed', async () => {
     await start()
-  })
-
-  it('a record written before a crash covers them across the restart', async () => {
-    await start()
-    const [first] = await stopWhileStarting('first')
-    // The host died after the record and before the write's answer.
-    await journal().stoppedHistory.recordAppend(
-      { appendId: 'crashed', messageIds: [first!] },
-      rig.store.getRecord(SESSION)!.lease.runtimeFence
+    await stopWhileStarting('first')
+    const carrier = await nextSend('carrier')
+    await settle(carrier, { kind: 'rejected', fact: 'notSignedIn', neverReached: true })
+    // A child that said it is signed out is replaced before the next send.
+    const { result } = rig.send('next')
+    expect(await result).toMatchObject({ ok: true })
+    await eventually(() =>
+      expect(rig.host.collaboratorsForTests().sessions.get(SESSION)?.child?.phase).toBe('starting')
     )
-    await rig.restartHostProcess()
-    await nextSend('after restart')
+    await rig.proveStart()
+    await eventually(() => expect(rig.dispatch).toHaveBeenCalledTimes(2))
 
-    expect(appended()).toEqual([])
-    expect(dispatched()).toEqual(['after restart'])
+    expect(dispatched()).toEqual([carrying(['first'], 'carrier'), carrying(['first'], 'next')])
   })
 
-  it('a refusal survives a restart: what it refused is still owed', async () => {
-    await start()
-    await stopWhileStarting('first')
-    rig.appendStoppedMessages.mockResolvedValueOnce({ outcome: 'refused', reason: 'Codex busy' })
-    const carrier = await nextSend('carrier')
-    await rig.settleAccepted(carrier, 'carrier')
-    await rig.restartHostProcess()
-    await nextSend('after restart')
-
-    expect(appended()).toEqual([['first'], ['first']])
-  })
-
-  it('a retry of the same send replays its answer and appends nothing again', async () => {
+  it('a retry of the same send replays its answer and carries nothing again', async () => {
     await start()
     await stopWhileStarting('first')
     const request = sendRequest('carrier')
@@ -317,11 +294,10 @@ describe("stopped messages go into the agent's own log ahead of the next send", 
       value: { clientMessageId: request.envelope.clientOperationId }
     })
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(appended()).toEqual([['first']])
-    expect(dispatched()).toEqual(['carrier'])
+    expect(dispatched()).toEqual([carrying(['first'], 'carrier')])
   })
 
-  it('two Stops in a row, the second while the next send waited on the start, append in send order', async () => {
+  it('two Stops in a row, the second while the next send waited on the start, carry in send order', async () => {
     await start()
     await stopWhileStarting('first')
     // Stopped during its own start: nothing was written, so it is owed too.
@@ -329,20 +305,19 @@ describe("stopped messages go into the agent's own log ahead of the next send", 
     expect(rig.dispatch).not.toHaveBeenCalled()
     await nextSend('third')
 
-    expect(appended()).toEqual([['first', 'second']])
-    expect(dispatched()).toEqual(['third'])
+    expect(dispatched()).toEqual([carrying(['first', 'second'], 'third')])
   })
 
-  it('never appends a withdrawal no one proved unwritten, as Codex writes and old journals hold', async () => {
+  it('never carries a withdrawal no one proved unwritten, as Codex writes and old journals hold', async () => {
     await start()
     const sent = await nextSend('sent')
     await settle(sent, { kind: 'rejected', fact: 'cancelled' })
     await nextSend('next')
 
-    expect(appended()).toEqual([])
+    expect(dispatched()).toEqual(['sent', 'next'])
   })
 
-  it('two sends at once, from a phone and a desktop: the first handed over appends them, once', async () => {
+  it('two sends at once, from a phone and a desktop: the first handed over carries them, once', async () => {
     await start()
     await stopWhileStarting('first')
     const phoneRequest = sendRequest('from the phone')
@@ -358,11 +333,10 @@ describe("stopped messages go into the agent's own log ahead of the next send", 
     await rig.settleAccepted(phoneRequest.envelope.clientOperationId, 'phone')
     await eventually(() => expect(rig.dispatch).toHaveBeenCalledTimes(2))
 
-    expect(appended()).toEqual([['first']])
-    expect(dispatched()).toEqual(['from the phone', 'from the desktop'])
+    expect(dispatched()).toEqual([carrying(['first'], 'from the phone'), 'from the desktop'])
   })
 
-  it('mail and slash commands append nothing, and stopped mail is never appended', async () => {
+  it('mail and slash commands carry nothing, and stopped mail is never owed', async () => {
     await start()
     await heldWhileStarting('first')
     const mail = rig.send('mail', undefined, { internal: true, from: MAIL })
@@ -377,11 +351,10 @@ describe("stopped messages go into the agent's own log ahead of the next send", 
     await rig.settleAccepted(rig.dispatch.mock.calls.at(-1)![0].clientMessageId, 'review')
     await nextSend('next')
 
-    expect(appended()).toEqual([['first']])
-    expect(dispatched()).toEqual(['more mail', '/review', 'next'])
+    expect(dispatched()).toEqual(['more mail', '/review', carrying(['first'], 'next')])
   })
 
-  it('appending them changes no work outcome: the chat is idle and each still reads Stopped manually once', async () => {
+  it('carrying them changes no work outcome and publishes nothing of them', async () => {
     await start()
     await stopWhileStarting('first')
     expect(working()).toBe(false)
@@ -394,7 +367,7 @@ describe("stopped messages go into the agent's own log ahead of the next send", 
     expect(await transcript()).toEqual(['first (stopped)', 'Stopped manually', 'carrier'])
   })
 
-  it('a real /clear bounds what is owed: what was stopped before it is never appended', async () => {
+  it('a real /clear bounds what is owed: what was stopped before it is never carried', async () => {
     await start()
     await stopWhileStarting('before clear')
     const fields = { command: 'clear' as const }
@@ -407,127 +380,151 @@ describe("stopped messages go into the agent's own log ahead of the next send", 
     await stopWhileStarting('after clear')
     await nextSend('next')
 
-    expect(appended()).toEqual([['after clear']])
+    expect(dispatched()).toEqual([carrying(['after clear'], 'next')])
   })
 })
 
-describe('an agent that cannot append carries them in the next send', () => {
-  const carrying = (options: QueuedRigProviderOptions = {}) =>
-    start({ carriesStoppedHistory: true, ...options })
+describe('an agent that injects gets them in its own log ahead of the send', () => {
+  const injecting = () => start({ injectsStoppedHistory: true })
 
-  it('carries both, in order, named on the handover row', async () => {
-    await carrying()
+  it('injects both, in order, before the send, which goes as typed', async () => {
+    await injecting()
     const [first, second] = await stopWhileStarting('first', 'second')
     const next = await nextSend('what did I send?')
 
-    expect(dispatched()).toEqual(['what did I send? <- [first, second]'])
-    expect(journal().stoppedHistory.carried().get(next)).toEqual([first, second])
-    expect(appended()).toEqual([])
+    expect(injected()).toEqual([['first', 'second']])
+    expect(dispatched()).toEqual(['what did I send?'])
+    expect(rig.injectStoppedMessages.mock.invocationCallOrder[0]).toBeLessThan(
+      rig.dispatch.mock.invocationCallOrder[0]!
+    )
+    expect(
+      [...journal().stoppedHistory.injected().values()].map((record) => record.messageIds)
+    ).toEqual([[first, second]])
+    expect(journal().stoppedHistory.carried().has(next)).toBe(false)
   })
 
-  it('a carrier refused before any write leaves them owed: the next send carries them again', async () => {
-    await carrying()
-    await stopWhileStarting('first', 'second')
-    rig.dispatch.mockResolvedValueOnce({
-      state: 'rejected',
-      ...agentSessionFailureWords(agentSessionFailureFact('writeFailed'), { surface: 'rejection' })
-    })
-    await nextSend('refused')
-    await nextSend('again')
-
-    expect(dispatched()).toEqual(['refused <- [first, second]', 'again <- [first, second]'])
-  })
-
-  it('a carrier in doubt is never re-sent, nor what it carried', async () => {
-    await carrying()
+  it('injects nothing again once the agent took them', async () => {
+    await injecting()
     await stopWhileStarting('first')
     const carrier = await nextSend('carrier')
-    await settle(carrier, { kind: 'unknown' })
+    await rig.settleAccepted(carrier, 'carrier')
     await nextSend('after')
 
-    expect(dispatched()).toEqual(['carrier <- [first]', 'after'])
+    expect(injected()).toEqual([['first']])
   })
 
-  it('a carrier Pi refused at its sign-in check leaves them owed', async () => {
-    await carrying()
+  it('injects them again at the next send when the agent proved it refused them', async () => {
+    await injecting()
     await stopWhileStarting('first')
-    const carrier = await nextSend('carrier')
-    await settle(carrier, { kind: 'rejected', fact: 'notSignedIn', neverReached: true })
-    // A child that said it is signed out is replaced before the next send.
-    const { result } = rig.send('next')
-    expect(await result).toMatchObject({ ok: true })
-    await eventually(() =>
-      expect(rig.host.collaboratorsForTests().sessions.get(SESSION)?.child?.phase).toBe('starting')
-    )
-    await rig.proveStart()
-    await eventually(() => expect(rig.dispatch).toHaveBeenCalledTimes(2))
-
-    expect(dispatched()).toEqual(['carrier <- [first]', 'next <- [first]'])
-  })
-
-  it('the row lists exactly what the prepared send carries, and the rest stays owed', async () => {
-    // Room for the oldest only, as an agent near its limit prepares it.
-    await carrying({
-      prepareDispatch: async ({ owed }) =>
-        new RigPreparedDispatch([owed[0]!.submission.clientMessageId], [text(owed[0]!.body)])
+    // As Codex answers while it runs a turn: nothing written.
+    rig.injectStoppedMessages.mockResolvedValueOnce({
+      outcome: 'refused',
+      reason: 'Codex is running a turn'
     })
-    const [first, second] = await stopWhileStarting('first', 'second')
     const carrier = await nextSend('carrier')
-
-    expect(journal().stoppedHistory.carried().get(carrier)).toEqual([first])
     await rig.settleAccepted(carrier, 'carrier')
-    const next = await nextSend('next')
+    await nextSend('after')
 
-    expect(dispatched()).toEqual(['carrier <- [first]', 'next <- [second]'])
-    expect(journal().stoppedHistory.carried().get(next)).toEqual([second])
+    expect(injected()).toEqual([['first'], ['first']])
+    expect(dispatched()).toEqual(['carrier', 'after'])
+    expect(journal().stoppedHistory.injected().size).toBe(1)
   })
 
-  it('a preparation that throws sends the message alone and leaves them owed', async () => {
-    let fails = true
-    await carrying({
-      prepareDispatch: async ({ owed }) => {
-        if (fails) {
-          throw new Error('image read failed')
-        }
-        return new RigPreparedDispatch(
-          owed.map((entry) => entry.submission.clientMessageId),
-          owed.map((entry) => text(entry.body))
-        )
-      }
+  it('never injects them again when the outcome is unknown, or the injection threw', async () => {
+    for (const fails of [
+      () =>
+        rig.injectStoppedMessages.mockResolvedValueOnce({
+          outcome: 'unknown',
+          reason: 'timed out'
+        }),
+      () => rig.injectStoppedMessages.mockRejectedValueOnce(new Error('lost contact'))
+    ]) {
+      await injecting()
+      await stopWhileStarting('first')
+      fails()
+      const carrier = await nextSend('carrier')
+      await rig.settleAccepted(carrier, 'carrier')
+      await nextSend('after')
+
+      // The send goes on whatever came of the injection.
+      expect(injected()).toEqual([['first']])
+      expect(dispatched()).toEqual(['carrier', 'after'])
+      await rig.dispose()
+    }
+    await injecting()
+  })
+
+  it('an agent that proves it cannot inject gets them carried in the same send instead', async () => {
+    await injecting()
+    await stopWhileStarting('first')
+    // As a Codex without `thread/inject_items` answers, after which it no longer injects.
+    rig.injectStoppedMessages.mockImplementationOnce(async () => {
+      rig.injectsStoppedMessages.mockReturnValue(false)
+      return { outcome: 'refused', reason: 'thread/inject_items is unsupported' }
     })
-    await stopWhileStarting('first')
-    const alone = await nextSend('alone')
-    await rig.settleAccepted(alone, 'alone')
-    fails = false
-    await nextSend('next')
+    const carrier = await nextSend('carrier')
+    await rig.settleAccepted(carrier, 'carrier')
+    await nextSend('after')
 
-    expect(dispatched()).toEqual(['alone', 'next <- [first]'])
+    expect(injected()).toEqual([['first']])
+    expect(dispatched()).toEqual([carrying(['first'], 'carrier'), 'after'])
   })
 
-  it('a preparation that stalls sends the message alone after its limit, and holds Stop no longer', async () => {
-    let stalls = true
-    const prepareDispatch = vi.fn(async ({ owed }: { owed: readonly OwedStoppedMessage[] }) =>
-      stalls
-        ? new Promise<null>(() => {})
-        : new RigPreparedDispatch(
-            owed.map((entry) => entry.submission.clientMessageId),
-            owed.map((entry) => text(entry.body))
-          )
+  it('a record written before a crash covers them across the restart', async () => {
+    await injecting()
+    const [first] = await stopWhileStarting('first')
+    // The host died after the record and before the write's answer.
+    await journal().stoppedHistory.recordInjection(
+      { injectionId: 'crashed', messageIds: [first!] },
+      rig.store.getRecord(SESSION)!.lease.runtimeFence
     )
-    await carrying({ prepareDispatch })
-    await stopWhileStarting('first')
-    const { id: alone, result } = rig.send('alone')
-    expect(await result).toMatchObject({ ok: true })
-    await rig.proveStart()
-    await eventually(() => expect(prepareDispatch).toHaveBeenCalledTimes(1))
-    // Pressed while the stalled preparation holds the lane.
-    const pressedAt = Date.now()
-    expect(await rig.stop()).toMatchObject({ ok: true })
-    expect(Date.now() - pressedAt).toBeLessThan(5_000)
-    await rig.settleAccepted(alone, 'alone')
-    stalls = false
-    await nextSend('next')
+    await rig.restartHostProcess()
+    await nextSend('after restart')
 
-    expect(dispatched()).toEqual(['alone', 'next <- [first]'])
+    expect(injected()).toEqual([])
+    expect(dispatched()).toEqual(['after restart'])
+  })
+
+  it('a refusal survives a restart: what it refused is still owed', async () => {
+    await injecting()
+    await stopWhileStarting('first')
+    rig.injectStoppedMessages.mockResolvedValueOnce({ outcome: 'refused', reason: 'Codex busy' })
+    const carrier = await nextSend('carrier')
+    await rig.settleAccepted(carrier, 'carrier')
+    await rig.restartHostProcess()
+    await nextSend('after restart')
+
+    expect(injected()).toEqual([['first'], ['first']])
+  })
+
+  it('a send with an attachment still delivers them, as the injection is its own write', async () => {
+    await injecting()
+    await stopWhileStarting('first')
+    await nextSend({
+      kind: 'message',
+      role: 'user',
+      blocks: [
+        { type: 'text', text: 'see' },
+        { type: 'image-ref', path: '/tmp/shot.png' }
+      ]
+    })
+
+    expect(injected()).toEqual([['first']])
+  })
+})
+
+describe('a recording that fails never blocks the send', () => {
+  it('writes nothing to the agent when the record cannot be written, so they stay owed', async () => {
+    await start({ injectsStoppedHistory: true })
+    await stopWhileStarting('first')
+    vi.spyOn(journal().stoppedHistory, 'recordInjection').mockRejectedValueOnce(
+      new Error('disk full')
+    )
+    const carrier = await nextSend('carrier')
+    await rig.settleAccepted(carrier, 'carrier')
+    await nextSend('after')
+
+    expect(injected()).toEqual([['first']])
+    expect(dispatched()).toEqual(['carrier', 'after'])
   })
 })

@@ -1,5 +1,6 @@
-// The handover's choice of stopped history: bounded by the latest /clear, never on a steer, appended
-// with its record written first or prepared once by the adapter, and never a reason a send fails.
+// The handover's delivery of stopped history: never on a steer or for anything but a person's
+// ordinary send, carried only by a words-only send, injected with its record written first, and
+// never a reason a send fails.
 
 import { describe, expect, it, vi } from 'vitest'
 import { agentSessionFailureFact } from '../../../shared/agent-session-failure'
@@ -11,13 +12,12 @@ import {
   type AgentJournalSubmission,
   type AgentJournalTurnScope
 } from '../../../shared/agent-session-journal-types'
-import {
-  appendStoppedHistory,
-  owedStoppedHistory,
-  prepareStoppedHistory
-} from './structured-agent-session-stopped-history-selection'
+import type { JournalStoppedMessageInjection } from '../agent-session-journal/journal-row-schema'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
-import type { JournalStoppedMessageAppend } from '../agent-session-journal/journal-row-schema'
+import {
+  carriedStoppedHistory,
+  injectStoppedHistory
+} from './structured-agent-session-stopped-history-selection'
 
 function message(text: string): AgentJournalMessageItem {
   return { kind: 'message', role: 'user', blocks: [{ type: 'text', text }] }
@@ -42,286 +42,144 @@ function stopped(id: string, sequence: number): AgentJournalSubmission {
   }
 }
 
-const CARRIER: AgentJournalSubmission = {
+const NEXT: AgentJournalSubmission = {
   ...stopped('next', 20),
   dispatchState: 'pending',
   reason: null,
   rejection: undefined
 }
 
-function journal(options: {
-  clearSequence?: number
-  appended?: Map<string, { messageIds: readonly string[]; sequence: number }>
-}): Parameters<typeof owedStoppedHistory>[0] {
-  const submissions = [stopped('old', 2), stopped('new', 9), CARRIER]
-  return {
+function handover(
+  options: {
+    turnScope?: AgentJournalTurnScope
+    inject?: StructuredAgentSessionAdapter['injectStoppedMessages']
+    record?: (injection: JournalStoppedMessageInjection) => Promise<void>
+  } = {}
+) {
+  const submissions = [stopped('old', 2), stopped('new', 9), NEXT]
+  const recorded: JournalStoppedMessageInjection[] = []
+  const logger = { warn: vi.fn(), error: vi.fn() }
+  const ctx = {
+    sessionId: 'session-1',
+    fence: 1,
+    logger,
+    adapter: options.inject ? { injectStoppedMessages: options.inject } : {},
     journal: {
       submissions: () => submissions,
-      stoppedHistory: {
-        carried: () => new Map(),
-        appended: () => options.appended ?? new Map()
-      },
-      context: {
-        floor: () =>
-          options.clearSequence ? { epoch: 'epoch-1', sequence: options.clearSequence } : null
-      },
-      itemBody: (itemId) =>
+      liveTurnScope: () => options.turnScope ?? AGENT_JOURNAL_THREAD_SCOPE,
+      context: { floor: () => null },
+      itemBody: (itemId: string) =>
         message(
           submissions.find((entry) => agentJournalSubmissionKey(entry.clientMessageId) === itemId)!
             .clientMessageId
-        )
+        ),
+      stoppedHistory: {
+        carried: () => new Map(),
+        injected: () => new Map(),
+        recordInjection: async (injection: JournalStoppedMessageInjection) => {
+          await options.record?.(injection)
+          recorded.push(injection)
+          return { epoch: 'epoch-1', sequence: recorded.length }
+        }
+      }
     }
   }
+  return { ctx, recorded, logger }
 }
 
-function owedIds(...args: Parameters<typeof owedStoppedHistory>): string[] {
-  return owedStoppedHistory(...args).map((entry) => entry.submission.clientMessageId)
-}
+const STOPPED = [
+  { clientMessageId: 'old', words: 'old' },
+  { clientMessageId: 'new', words: 'new' }
+]
 
-function preparing(prepareDispatch?: StructuredAgentSessionAdapter['prepareDispatch']) {
-  return {
-    sessionId: 'session-1',
-    fence: 1,
-    adapter: prepareDispatch ? { prepareDispatch } : {},
-    logger: { warn: vi.fn(), error: vi.fn() }
-  }
-}
-
-const OWED = owedStoppedHistory(journal({}), CARRIER, message('next'), AGENT_JOURNAL_THREAD_SCOPE)
-
-describe('choosing the stopped history a handover carries', () => {
-  it('owes only what was sent after the latest /clear, oldest first', () => {
-    expect(owedIds(journal({}), CARRIER, message('next'), AGENT_JOURNAL_THREAD_SCOPE)).toEqual([
-      'old',
-      'new'
-    ])
-    expect(
-      owedIds(journal({ clearSequence: 5 }), CARRIER, message('next'), AGENT_JOURNAL_THREAD_SCOPE)
-    ).toEqual(['new'])
-  })
-
-  it('carries nothing on a steer into a running turn, which may never record it', () => {
-    expect(
-      owedIds(journal({}), CARRIER, message('next'), { kind: 'turn', turnItemId: 'turn-1' })
-    ).toEqual([])
-  })
-
-  it('a slash command carries nothing', () => {
-    expect(owedIds(journal({}), CARRIER, message('/review'), AGENT_JOURNAL_THREAD_SCOPE)).toEqual(
-      []
-    )
-  })
-
-  it('asks the adapter once, with every owed message, and takes its prepared send as is', async () => {
-    const prepared = { carries: ['old'] }
-    const prepare = vi.fn(async () => prepared)
-    expect(await prepareStoppedHistory(preparing(prepare), message('next'), OWED)).toBe(prepared)
-    expect(prepare).toHaveBeenCalledTimes(1)
-    expect(prepare).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      fence: 1,
-      body: message('next'),
-      owed: OWED,
-      signal: expect.any(AbortSignal)
+describe('the stopped history a handover delivers', () => {
+  it('a words-only send carries every owed message, oldest first', () => {
+    const { ctx } = handover()
+    expect(carriedStoppedHistory(ctx, NEXT, message('next'))).toEqual({
+      messages: STOPPED,
+      covers: ['old', 'new']
     })
   })
 
-  it('prepares nothing when nothing is owed, so a plain send goes as it always did', async () => {
-    const prepare = vi.fn(async () => ({ carries: ['old'] }))
-    expect(await prepareStoppedHistory(preparing(prepare), message('next'), [])).toBeNull()
-    expect(prepare).not.toHaveBeenCalled()
-  })
+  it('a steer into a running turn, a slash command or a send with an image delivers none', async () => {
+    const steer = handover({ turnScope: { kind: 'turn', turnItemId: 'turn-1' } })
+    expect(carriedStoppedHistory(steer.ctx, NEXT, message('next'))).toBeNull()
+    const inject = vi.fn<NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']>>()
+    const steerInject = handover({ turnScope: { kind: 'turn', turnItemId: 'turn-1' }, inject })
+    await injectStoppedHistory(steerInject.ctx, NEXT, message('next'))
+    expect(inject).not.toHaveBeenCalled()
+    expect(steerInject.recorded).toEqual([])
 
-  it('sends alone when none fits or the agent cannot carry history', async () => {
-    expect(
-      await prepareStoppedHistory(
-        preparing(async () => null),
-        message('next'),
-        OWED
-      )
-    ).toBeNull()
-    expect(
-      await prepareStoppedHistory(
-        preparing(async () => ({ carries: [] })),
-        message('next'),
-        OWED
-      )
-    ).toBeNull()
-    expect(await prepareStoppedHistory(preparing(), message('next'), OWED)).toBeNull()
-  })
-
-  it('a failed preparation sends the message alone, logged, and leaves the history owed', async () => {
-    const ctx = preparing(async () => {
-      throw new Error('stat failed')
-    })
-    expect(await prepareStoppedHistory(ctx, message('next'), OWED)).toBeNull()
-    expect(ctx.logger.warn).toHaveBeenCalledTimes(1)
-  })
-
-  it('a preparation that stalls sends the message alone within the limit, and its late result is dropped', async () => {
-    const finishes: ((prepared: { carries: string[] }) => void)[] = []
-    const ctx = preparing(() => new Promise((resolve) => finishes.push(resolve)))
-    expect(await prepareStoppedHistory(ctx, message('next'), OWED, 20)).toBeNull()
-    expect(ctx.logger.warn).toHaveBeenCalledTimes(1)
-    finishes.forEach((finish) => finish({ carries: ['old'] }))
-    await Promise.resolve()
-    expect(ctx.logger.warn).toHaveBeenCalledTimes(1)
-  })
-
-  it('past its limit carries the leading messages with words, without their images, reading no more', async () => {
-    const image = { type: 'image-ref' as const, path: '/hung/shot.png' }
-    const owed = [
-      { ...OWED[0]!, body: { ...OWED[0]!.body, blocks: [image, ...OWED[0]!.body.blocks] } },
-      { ...OWED[1]!, body: { ...OWED[1]!.body, blocks: [image] } }
-    ]
-    const signals: AbortSignal[] = []
-    const prepare = vi.fn(
-      (input: Parameters<NonNullable<StructuredAgentSessionAdapter['prepareDispatch']>>[0]) => {
-        signals.push(input.signal!)
-        return signals.length === 1
-          ? new Promise<null>(() => {})
-          : Promise.resolve({
-              carries: input.owed.map((entry) => entry.submission.clientMessageId)
-            })
-      }
-    )
-    expect(await prepareStoppedHistory(preparing(prepare), message('next'), owed, 20)).toEqual({
-      carries: ['old']
-    })
-    expect(prepare).toHaveBeenCalledTimes(2)
-    expect(prepare.mock.calls[1]![0].owed.map((entry) => entry.body.blocks)).toEqual([
-      [{ type: 'text', text: 'old' }]
-    ])
-    expect(signals.every((signal) => signal.aborted)).toBe(true)
-
-    // The oldest has no words: nothing rides, and it stays owed.
-    const again = vi.fn(() => new Promise<null>(() => {}))
-    expect(
-      await prepareStoppedHistory(preparing(again), message('next'), [owed[1]!], 20)
-    ).toBeNull()
-    expect(again).toHaveBeenCalledTimes(1)
-  })
-
-  it('owes nothing an append record names', () => {
-    expect(
-      owedIds(
-        journal({ appended: new Map([['append-1', { messageIds: ['old'], sequence: 1 }]]) }),
-        CARRIER,
-        message('next'),
-        AGENT_JOURNAL_THREAD_SCOPE
-      )
-    ).toEqual(['new'])
+    expect(carriedStoppedHistory(handover().ctx, NEXT, message('/review'))).toBeNull()
+    const withImage: AgentJournalMessageItem = {
+      ...message('see'),
+      blocks: [
+        { type: 'text', text: 'see' },
+        { type: 'image-ref', path: '/tmp/shot.png' }
+      ]
+    }
+    expect(carriedStoppedHistory(handover().ctx, NEXT, withImage)).toBeNull()
   })
 })
 
-describe('appending the stopped messages owed to the agent', () => {
-  function appending(
-    append: NonNullable<StructuredAgentSessionAdapter['appendStoppedMessages']>,
-    record: (append: JournalStoppedMessageAppend) => Promise<void> = async () => {}
-  ) {
-    const events: string[] = []
-    const ctx = {
-      sessionId: 'session-1',
-      fence: 1,
-      adapter: {
-        appendStoppedMessages: vi.fn(async (input: Parameters<typeof append>[0]) => {
-          events.push(
-            `append ${input.messages.map((entry) => entry.submission.clientMessageId).join(',')}`
-          )
-          return append(input)
-        })
-      },
-      journal: {
-        liveTurnScope: vi.fn((): AgentJournalTurnScope => AGENT_JOURNAL_THREAD_SCOPE),
-        stoppedHistory: {
-          recordAppend: vi.fn(async (entry: JournalStoppedMessageAppend) => {
-            events.push(
-              'refused' in entry ? 'record refused' : `record ${entry.messageIds.join(',')}`
-            )
-            await record(entry)
-            return { epoch: 'epoch-1', sequence: 1 }
-          })
-        }
-      },
-      logger: { warn: vi.fn(), error: vi.fn() }
-    }
-    return { ctx, events }
-  }
+describe('injecting the stopped messages owed', () => {
+  it('records the injection before writing it, and records nothing more when the agent took it', async () => {
+    const order: string[] = []
+    const inject = vi.fn(async () => {
+      order.push('inject')
+      return { outcome: 'accepted' as const }
+    })
+    const { ctx, recorded } = handover({
+      inject,
+      record: async () => {
+        order.push('record')
+      }
+    })
+    await injectStoppedHistory(ctx, NEXT, message('next'))
 
-  it('records the append before writing it, and records nothing more when the agent took it', async () => {
-    const { ctx, events } = appending(async () => ({ outcome: 'accepted' }))
-    await appendStoppedHistory(ctx, OWED)
-
-    expect(events).toEqual(['record old,new', 'append old,new'])
-    expect(ctx.logger.warn).not.toHaveBeenCalled()
+    expect(order).toEqual(['record', 'inject'])
+    expect(inject).toHaveBeenCalledWith({ sessionId: 'session-1', fence: 1, messages: STOPPED })
+    expect(recorded).toEqual([{ injectionId: expect.any(String), messageIds: ['old', 'new'] }])
   })
 
   it('records a proven refusal, so they are owed again', async () => {
-    const { ctx, events } = appending(async () => ({
-      outcome: 'refused',
-      reason: 'Codex is running a turn'
-    }))
-    await appendStoppedHistory(ctx, OWED)
+    const { ctx, recorded } = handover({
+      inject: async () => ({ outcome: 'refused', reason: 'Codex is running a turn' })
+    })
+    await injectStoppedHistory(ctx, NEXT, message('next'))
 
-    expect(events).toEqual(['record old,new', 'append old,new', 'record refused'])
+    expect(recorded).toEqual([
+      { injectionId: expect.any(String), messageIds: ['old', 'new'] },
+      { injectionId: recorded[0]!.injectionId, refused: true }
+    ])
   })
 
-  it('leaves an unknown or thrown append covered, never to be appended again', async () => {
-    for (const append of [
+  it('leaves an unknown or thrown injection covered, never to be injected again, and logs it', async () => {
+    for (const inject of [
       async () => ({ outcome: 'unknown' as const, reason: 'timed out' }),
       async () => {
         throw new Error('lost contact')
       }
     ]) {
-      const { ctx, events } = appending(append)
-      await appendStoppedHistory(ctx, OWED)
+      const { ctx, recorded, logger } = handover({ inject })
+      await injectStoppedHistory(ctx, NEXT, message('next'))
 
-      expect(events).toEqual(['record old,new', 'append old,new'])
-      expect(ctx.logger.warn).toHaveBeenCalledTimes(1)
+      expect(recorded).toHaveLength(1)
+      expect(logger.warn).toHaveBeenCalledTimes(1)
     }
   })
 
   it('writes nothing to the agent when the record cannot be written, so they stay owed', async () => {
-    const { ctx, events } = appending(
-      async () => ({ outcome: 'accepted' }),
-      async () => {
+    const inject = vi.fn<NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']>>()
+    const { ctx, logger } = handover({
+      inject,
+      record: async () => {
         throw new Error('disk full')
       }
-    )
-    await appendStoppedHistory(ctx, OWED)
-
-    expect(events).toEqual(['record old,new'])
-    expect(ctx.adapter.appendStoppedMessages).not.toHaveBeenCalled()
-  })
-
-  it("lets the agent read Orca's turn right before its write", async () => {
-    const live: boolean[] = []
-    const { ctx } = appending(async ({ turnLive }) => {
-      live.push(turnLive())
-      ctx.journal.liveTurnScope.mockReturnValue({ kind: 'turn', turnItemId: 'turn-1' })
-      live.push(turnLive())
-      return { outcome: 'refused', reason: 'Codex is running a turn' }
     })
-    await appendStoppedHistory(ctx, OWED)
+    await injectStoppedHistory(ctx, NEXT, message('next'))
 
-    expect(live).toEqual([false, true])
-  })
-
-  it('logs a message with nothing left to append once, as nothing written, and leaves it covered', async () => {
-    const { ctx, events } = appending(async () => ({ outcome: 'unreadable' }))
-    await appendStoppedHistory(ctx, OWED)
-
-    expect(events).toEqual(['record old,new', 'append old,new'])
-    expect(ctx.logger.warn).toHaveBeenCalledWith(
-      'stopped messages had nothing left to append',
-      expect.not.objectContaining({ outcome: 'unknown' })
-    )
-  })
-
-  it('appends nothing when nothing is owed', async () => {
-    const { ctx, events } = appending(async () => ({ outcome: 'accepted' }))
-    await appendStoppedHistory(ctx, [])
-
-    expect(events).toEqual([])
+    expect(inject).not.toHaveBeenCalled()
+    expect(logger.warn).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,6 +1,5 @@
 import { extname } from 'node:path'
 import { resolveJsonlRpcPeerOptions } from '../jsonl-rpc/peer-limits'
-import type { JsonlRpcRecord } from '../jsonl-rpc/peer'
 import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import type { NativeChatImageRefBlock } from '../../shared/native-chat-types'
 import {
@@ -12,15 +11,6 @@ import {
   ClaudeDispatchContentError,
   readClaudeImage
 } from '../claude/claude-structured-dispatch-content'
-import type { OwedStoppedMessage } from '../../shared/agent-session-stopped-history'
-import {
-  preparedByAdapter,
-  type AgentSessionPreparedDispatch
-} from '../native-chat/agent-session-wire/structured-agent-session-prepared-dispatch'
-import {
-  fitStoppedHistory,
-  withStoppedHistoryText
-} from '../native-chat/agent-session-wire/structured-agent-session-stopped-history-fit'
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 const MAX_IMAGE_COUNT = 20
@@ -43,22 +33,6 @@ export type PiRpcPrompt = Record<string, unknown> & {
 
 type ImageReads = {
   readLocal(path: string): Promise<Buffer>
-}
-
-/** The line Pi is written: the prompt, steering the running turn or following it. */
-export function piRpcPromptFrame<T extends JsonlRpcRecord>(
-  prompt: T,
-  working: boolean
-): T & { streamingBehavior: NonNullable<PiRpcPrompt['streamingBehavior']> } {
-  return { ...prompt, streamingBehavior: working ? 'steer' : 'followUp' }
-}
-
-/** A prompt's bytes in whichever frame it is written. */
-function piRpcPromptFrameBytes(prompt: PiRpcPrompt): number {
-  return Math.max(
-    jsonBytes(piRpcPromptFrame(prompt, true)),
-    jsonBytes(piRpcPromptFrame(prompt, false))
-  )
 }
 
 export class PiRpcPromptError extends Error {
@@ -190,77 +164,11 @@ export async function preparePiRpcPrompt(
     images,
     ...(streamingBehavior ? { streamingBehavior } : {})
   }
-  if (piRpcPromptFrameBytes(prompt) > MAX_PROMPT_WIRE_BYTES) {
+  if (Buffer.byteLength(JSON.stringify(prompt), 'utf8') > MAX_PROMPT_WIRE_BYTES) {
     throw new PiRpcPromptError(
       'Pi prompt exceeds the RPC write limit',
       agentSessionFailureFact('historyTooLarge')
     )
   }
   return prompt
-}
-
-/** A Pi prompt prepared with its stopped history, written as is. */
-export class PiPreparedDispatch implements AgentSessionPreparedDispatch {
-  constructor(
-    readonly carries: readonly string[],
-    readonly prompt: PiRpcPrompt
-  ) {}
-}
-
-/** The prompt dispatch writes: the prepared one as is, else the send's own. */
-export async function piRpcDispatchPrompt(
-  body: AgentJournalMessageItem,
-  prepared: AgentSessionPreparedDispatch | undefined
-): Promise<PiRpcPrompt> {
-  return preparedByAdapter(prepared, PiPreparedDispatch)?.prompt ?? preparePiRpcPrompt(body)
-}
-
-function jsonBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value), 'utf8')
-}
-
-/** The prompt with the owed stopped messages that fit Pi's image limits, its one RPC line and what
- *  its prompt queue can still hold (`heldBytesFree`): their words leading the send's, their images
- *  ahead of the send's. Null when none fits or the send alone fails, whose refusal dispatch gives. */
-export async function preparePiRpcDispatch(
-  body: AgentJournalMessageItem,
-  owed: readonly OwedStoppedMessage[],
-  heldBytesFree: number,
-  signal?: AbortSignal,
-  reads: ImageReads = { readLocal: readClaudeImage }
-): Promise<PiPreparedDispatch | null> {
-  const own = await preparePiRpcPrompt(body, undefined, reads).catch(() => null)
-  if (!own) {
-    return null
-  }
-  const ownBytes = own.images.reduce(
-    (sum, image) => sum + Buffer.byteLength(image.data, 'base64'),
-    0
-  )
-  const fit = await fitStoppedHistory({
-    owed,
-    room: {
-      line: Math.min(MAX_PROMPT_WIRE_BYTES, heldBytesFree) - piRpcPromptFrameBytes(own),
-      images: MAX_IMAGE_COUNT - own.images.length,
-      bytes: MAX_TOTAL_IMAGE_BYTES - ownBytes
-    },
-    textCost: (text) => ({ line: jsonBytes(text) - 2 }),
-    ...(signal ? { signal } : {}),
-    image: async (block) => {
-      const { bytes, mimeType } = await readImage(block, reads)
-      const image = { type: 'image' as const, data: bytes.toString('base64'), mimeType }
-      return {
-        content: image,
-        cost: { line: jsonBytes(image) + 1, images: 1, bytes: bytes.byteLength }
-      }
-    }
-  })
-  if (!fit) {
-    return null
-  }
-  return new PiPreparedDispatch(fit.carries, {
-    ...own,
-    message: withStoppedHistoryText(fit.text, own.message),
-    images: [...fit.images, ...own.images]
-  })
 }

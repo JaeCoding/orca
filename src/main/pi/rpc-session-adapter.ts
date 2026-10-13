@@ -18,7 +18,7 @@ import { compactPiRpcSession } from './rpc-compaction'
 import { buildPiRpcLaunch } from './rpc-launch'
 import { piRpcProviderLink, type PiRpcResolvedLaunch } from './rpc-launch-resolution'
 import { PiRpcSession, type PiRpcSessionDeps, type PiRpcConnection } from './rpc-session'
-import { PiRpcPromptError, piRpcDispatchPrompt, preparePiRpcDispatch } from './rpc-prompt'
+import { PiRpcPromptError, preparePiRpcPrompt } from './rpc-prompt'
 import { applyPiRpcSessionOption } from './rpc-options'
 import { supportsSupervisedProviderChildLocation } from '../provider-process/supervised-provider-child-location'
 import { ClaudeDispatchContentError } from '../claude/claude-structured-dispatch-content'
@@ -129,7 +129,7 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
     const session = this.session(input.sessionId, input.fence)
     let prompt
     try {
-      prompt = await piRpcDispatchPrompt(input.body, input.prepared)
+      prompt = await preparePiRpcPrompt(input.body)
     } catch (error) {
       this.deps.logger.warn('Pi prompt could not be prepared', {
         scope: 'pi-prompt',
@@ -152,13 +152,6 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
       { ...prompt },
       input.beforeDispatch
     )
-  }
-
-  stoppedMessageDelivery = (): 'carry' => 'carry'
-
-  prepareDispatch: NonNullable<StructuredAgentSessionAdapter['prepareDispatch']> = (input) => {
-    const session = this.session(input.sessionId, input.fence)
-    return preparePiRpcDispatch(input.body, input.owed, session.turns.heldBytesFree, input.signal)
   }
 
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = async (input) =>

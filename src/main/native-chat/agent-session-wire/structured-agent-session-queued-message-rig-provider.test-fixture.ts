@@ -7,7 +7,6 @@ import { activeProviderContext } from '../../../shared/agent-session-provider-co
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
-import type { AgentSessionPreparedDispatch } from './structured-agent-session-prepared-dispatch'
 import type { StructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 import {
   HOST_TEST_NOW as NOW,
@@ -26,29 +25,10 @@ export type QueuedRigProviderOptions = {
   stopEndsSession?: true
   /** Its child never answers its start, so it runs nothing it is handed. */
   startUnanswered?: true
-  /** Its agent cannot append stopped messages to its log, so its sends carry them, as ACP and Pi. */
-  carriesStoppedHistory?: true
-  /** Its own preparation of a carried send; by default every owed message fits. */
-  prepareDispatch?: NonNullable<StructuredAgentSessionAdapter['prepareDispatch']>
+  /** Its agent takes stopped messages by injection into its log, as Codex; otherwise its sends
+   *  carry them. */
+  injectsStoppedHistory?: true
 }
-
-/** The rig's prepared send: the words of each stopped message it carries, as the agent gets them. */
-export class RigPreparedDispatch implements AgentSessionPreparedDispatch {
-  constructor(
-    readonly carries: readonly string[],
-    readonly history: readonly string[]
-  ) {}
-}
-
-const prepareAll: NonNullable<StructuredAgentSessionAdapter['prepareDispatch']> = async ({
-  owed
-}) =>
-  new RigPreparedDispatch(
-    owed.map((entry) => entry.submission.clientMessageId),
-    owed.map((entry) =>
-      entry.body.blocks.map((block) => (block.type === 'text' ? block.text : '')).join('')
-    )
-  )
 
 export function createQueuedRigProvider(
   store: Pick<AgentSessionRecordStore, 'getRecord'>,
@@ -74,14 +54,11 @@ export function createQueuedRigProvider(
   const closeSession: Mock<NonNullable<StructuredAgentSessionAdapter['closeSession']>> = vi.fn(
     async () => true
   )
-  // Stopped messages written into the agent's log, as Claude and Codex take them.
-  const appendStoppedMessages: Mock<
-    NonNullable<StructuredAgentSessionAdapter['appendStoppedMessages']>
+  // Stopped messages written into the agent's log, as Codex takes them.
+  const injectStoppedMessages: Mock<
+    NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']>
   > = vi.fn(async () => ({ outcome: 'accepted' as const }))
-  // `none` while the agent is busy, as Claude and Codex answer it.
-  const stoppedMessageDelivery: Mock<
-    NonNullable<StructuredAgentSessionAdapter['stoppedMessageDelivery']>
-  > = vi.fn(() => (options.carriesStoppedHistory ? 'carry' : 'append'))
+  const injectsStoppedMessages = vi.fn((_sessionId: string) => true)
   let events: StructuredAgentSessionEventSink | undefined
 
   const adapter: StructuredAgentSessionAdapter = {
@@ -133,12 +110,7 @@ export function createQueuedRigProvider(
       ? { rewind: options.rewind, rewindSupport: () => ({ supported: true as const }) }
       : {}),
     ...(options.recoverRewind ? { recoverRewind: options.recoverRewind } : {}),
-    ...(options.carriesStoppedHistory
-      ? {
-          stoppedMessageDelivery,
-          prepareDispatch: options.prepareDispatch ?? prepareAll
-        }
-      : { stoppedMessageDelivery, appendStoppedMessages })
+    ...(options.injectsStoppedHistory ? { injectsStoppedMessages, injectStoppedMessages } : {})
   }
 
   /** What the provider's translator writes when a /compact's turn ends, as a success. */
@@ -181,8 +153,8 @@ export function createQueuedRigProvider(
   return {
     adapter,
     dispatch,
-    appendStoppedMessages,
-    stoppedMessageDelivery,
+    injectStoppedMessages,
+    injectsStoppedMessages,
     starts,
     holdNextStart,
     failNextStart,

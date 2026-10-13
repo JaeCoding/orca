@@ -7,7 +7,6 @@ import type {
   AgentJournalItemBody,
   AgentJournalItemIdentity,
   AgentJournalProducerLinkage,
-  AgentJournalSubmission,
   AgentJournalTurnScope,
   AgentSessionJournalIdentity
 } from '../../../shared/agent-session-journal-types'
@@ -16,10 +15,6 @@ import type { JournalHostDatabase } from './journal-host-database'
 import type { JournalLoad } from './journal-open'
 import { applyJournalRow, createJournalReducerState } from './journal-reducer'
 import { buildJournalItemRow, journalRowBase } from './journal-row-builders'
-import {
-  journalRestatedAppendRows,
-  journalRestatedSendRows
-} from './journal-rewind-restated-send-rows'
 import {
   buildJournalQueueReopenRow,
   buildJournalQueueClearRow,
@@ -33,11 +28,7 @@ import {
   publishJournalSessionEpoch,
   readJournalSessionEpoch
 } from './journal-row-table'
-import type {
-  AgentJournalEpochReason,
-  JournalRow,
-  JournalStoppedMessageAppend
-} from './journal-row-schema'
+import type { AgentJournalEpochReason, JournalRow } from './journal-row-schema'
 import { assertJournalFence } from './journal-write-guards'
 
 export type JournalReplacementItem = AgentJournalProducerLinkage & {
@@ -47,10 +38,6 @@ export type JournalReplacementItem = AgentJournalProducerLinkage & {
   /** Absent for history rebuilt from a source that never stated one: derived from position, as
    *  a legacy row's is, and then written down. */
   turnScope?: AgentJournalTurnScope
-  /** A rewind's: the stopped send this row is, restated with its own rows instead of an item row. */
-  send?: AgentJournalSubmission
-  /** A rewind's: the append records that sat just after this row. */
-  appendsAfter?: JournalStoppedMessageAppend[]
 }
 
 export function replaceJournalEpoch(input: {
@@ -69,42 +56,28 @@ export function replaceJournalEpoch(input: {
 }): void {
   const epoch = input.mintEpoch()
   const state = createJournalReducerState(input.identity.sessionId, epoch)
-  const providerHandle = agentSessionJournalProviderHandle(input.identity)
   const epochRow: JournalRow = {
     kind: 'epoch',
     reason: input.reason,
-    providerHandle,
+    providerHandle: agentSessionJournalProviderHandle(input.identity),
     ...journalRowBase(epoch, 1, input.fence, input.now())
   }
   const rows: JournalRow[] = [epochRow]
   applyJournalRow(state, epochRow)
-  const append = (build: (seq: number, ts: number) => JournalRow, ts: number) => {
-    const row = build(state.lastSequence + 1, ts)
+  for (const item of input.items) {
+    const row = buildJournalItemRow({
+      state,
+      identity: item.identity,
+      body: item.body,
+      seq: state.lastSequence + 1,
+      fence: input.fence,
+      ts: item.observedAt ?? input.now(),
+      linkage: item,
+      turnScope: item.turnScope ?? state.derivedTurnScope.scopeFor(item.body)
+    })
+    assertJournalFence(row.fence, state.highestFence)
     applyJournalRow(state, row)
     rows.push(row)
-  }
-  for (const item of input.items) {
-    const restated = journalRestatedSendRows({ state, providerHandle, fence: input.fence, item })
-    if (restated.length > 0) {
-      restated.forEach((build) => append(build, item.observedAt ?? input.now()))
-    } else {
-      const row = buildJournalItemRow({
-        state,
-        identity: item.identity,
-        body: item.body,
-        seq: state.lastSequence + 1,
-        fence: input.fence,
-        ts: item.observedAt ?? input.now(),
-        linkage: item,
-        turnScope: item.turnScope ?? state.derivedTurnScope.scopeFor(item.body)
-      })
-      assertJournalFence(row.fence, state.highestFence)
-      applyJournalRow(state, row)
-      rows.push(row)
-    }
-    for (const build of journalRestatedAppendRows({ state, fence: input.fence, item })) {
-      append(build, item.observedAt ?? input.now())
-    }
   }
   const { lifted, liveStop, reopened } = input.queuePause
   const place = () => ({ state, seq: state.lastSequence + 1, fence: input.fence, ts: input.now() })

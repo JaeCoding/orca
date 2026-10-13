@@ -71,21 +71,20 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   dispatch: StructuredAgentSessionAdapter['dispatch'] = (input) =>
     this.owner(input.sessionId).dispatch(input)
 
-  prepareDispatch: NonNullable<StructuredAgentSessionAdapter['prepareDispatch']> = async (input) =>
-    (await this.owner(input.sessionId).prepareDispatch?.(input)) ?? null
-
-  stoppedMessageDelivery: NonNullable<StructuredAgentSessionAdapter['stoppedMessageDelivery']> = (
+  injectsStoppedMessages: NonNullable<StructuredAgentSessionAdapter['injectsStoppedMessages']> = (
     sessionId
-  ) => this.liveOwnerOrNull(sessionId)?.stoppedMessageDelivery?.(sessionId) ?? 'none'
+  ) => this.liveOwnerOrNull(sessionId)?.injectsStoppedMessages?.(sessionId) ?? false
 
-  appendStoppedMessages: NonNullable<StructuredAgentSessionAdapter['appendStoppedMessages']> = (
+  injectStoppedMessages: NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']> = (
     input
   ) => {
-    const owner = this.owner(input.sessionId)
-    if (!owner.appendStoppedMessages) {
-      throw new Error(`the agent of ${input.sessionId} cannot append stopped messages`)
-    }
-    return owner.appendStoppedMessages(input)
+    const inject = this.owner(input.sessionId).injectStoppedMessages
+    return inject
+      ? inject(input)
+      : Promise.resolve({
+          outcome: 'refused' as const,
+          reason: 'this agent cannot inject stopped messages'
+        })
   }
 
   /** The owner's declared rewind, narrowed by its adapter for this session; never widened. */

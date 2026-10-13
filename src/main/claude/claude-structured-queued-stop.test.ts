@@ -230,10 +230,10 @@ describe('Stop with a follow-up Claude queued behind the running turn', () => {
       agentSessionStoppedHistoryOwed({
         submissions: [submission],
         carried: new Map(),
-        appended: new Map(),
+        injected: new Map(),
         clearSequence: 0,
         body: () => USER_MESSAGE
-      }).map((entry) => entry.submission.clientMessageId)
+      }).map((entry) => entry.clientMessageId)
 
     expect(owed(swept)).toEqual([])
     // Only proof that it never reached Claude would make it owed.

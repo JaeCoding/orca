@@ -29,7 +29,7 @@ import { journalItemRevisionIsStale } from './journal-item-revision'
 import { observeJournalProviderActivity } from './journal-provider-activity'
 import {
   isJournalStopOrResumeRow,
-  isJournalStoppedMessageAppendRow,
+  isJournalStoppedMessageInjectionRow,
   type JournalRow
 } from './journal-row-schema'
 import { acceptSubmissionFromProviderItem, applyJournalSubmission } from './journal-submission-fold'
@@ -38,10 +38,7 @@ import { isWriteFailureSubmission } from '../../../shared/structured-agent-sessi
 import { projectJournalStopNote } from './journal-stop-note-projection'
 import { retireRewoundJournalSubmission } from './journal-rewind-submission-retirement'
 import { latestAgentSessionContextClearSequence } from '../../../shared/agent-session-context-clear'
-import {
-  foldJournalStoppedMessageAppend,
-  type JournalStoppedMessageAppendRecord
-} from './journal-stopped-message-appends'
+import { foldJournalStoppedMessageInjection } from './journal-stopped-message-injections'
 import {
   createJournalQueuePauseMarks,
   foldJournalQueuePauseMark,
@@ -79,8 +76,8 @@ export type JournalReducerState = {
   queuePauseMarks: JournalQueuePauseMarks
   /** Host-only: each handed-over send's stopped-message history, from its latest `pending` row. */
   stoppedHistoryCarried: Map<string, readonly string[]>
-  /** Host-only: each stopped-message append not proven refused, by append id. */
-  stoppedMessageAppends: Map<string, JournalStoppedMessageAppendRecord>
+  /** Host-only: each stopped-message injection not proven refused, by injection id. */
+  stoppedMessageInjections: Map<string, { readonly messageIds: readonly string[] }>
 }
 
 export function createJournalReducerState(sessionId: string, epoch: string): JournalReducerState {
@@ -103,7 +100,7 @@ export function createJournalReducerState(sessionId: string, epoch: string): Jou
     latestAcceptedTurnSequence: 0,
     queuePauseMarks: createJournalQueuePauseMarks(),
     stoppedHistoryCarried: new Map(),
-    stoppedMessageAppends: new Map()
+    stoppedMessageInjections: new Map()
   }
 }
 
@@ -134,8 +131,8 @@ export function applyJournalRow(
     )
     return
   }
-  if (isJournalStoppedMessageAppendRow(row)) {
-    foldJournalStoppedMessageAppend(state.stoppedMessageAppends, row.stoppedMessageAppend, row.seq)
+  if (isJournalStoppedMessageInjectionRow(row)) {
+    foldJournalStoppedMessageInjection(state.stoppedMessageInjections, row.stoppedMessageInjection)
     return
   }
   if (isJournalStopOrResumeRow(row)) {

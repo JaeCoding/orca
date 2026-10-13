@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { agentSessionFailureFact } from '../../shared/agent-session-failure'
 import { agentSessionFailureWords } from '../../shared/agent-session-failure-words'
+import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
 import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
 import {
   AgentSessionAcquisitionExitProvenError,
@@ -33,8 +34,7 @@ import {
 import { waitForAcpExit, type AcpStructuredConnection } from './acp-structured-connection'
 import { AcpConnectionClosedError } from './acp-errors'
 import { awaitAcpTurnEnd, interruptAcpTurn, windDownAcpTurn } from './acp-structured-stop'
-import { AcpPreparedDispatch, acpDispatchPrompt, prepareAcpDispatch } from './acp-prompt-content'
-import { preparedByAdapter } from '../native-chat/agent-session-wire/structured-agent-session-prepared-dispatch'
+import { acpDispatchPrompt } from './acp-prompt-content'
 import {
   ACP_OPTION_WRITE_TIMEOUT_MS,
   ACP_STOP_GRACE_MS,
@@ -139,17 +139,21 @@ export class AcpStructuredSessionAdapter implements StructuredAgentSessionAdapte
     }
   }
 
-  async dispatch(
-    input: Parameters<StructuredAgentSessionAdapter['dispatch']>[0]
-  ): Promise<AgentSessionDispatchOutcome> {
+  async dispatch(input: {
+    sessionId: string
+    clientMessageId: string
+    body: AgentJournalMessageItem
+    fence: number
+    requestedAt?: number
+    beforeDispatch?: () => Promise<void>
+  }): Promise<AgentSessionDispatchOutcome> {
     const lost = this.sessions.get(input.sessionId)
     if (lost && lost.journalClosed !== null) {
       // The connection broke and the exit is not yet proven: the message never left Orca.
       return this.rejected(lost, 'providerExited')
     }
     const session = this.live(input.sessionId)
-    const prepared = preparedByAdapter(input.prepared, AcpPreparedDispatch)
-    const prompt = prepared ? [...prepared.prompt] : await acpDispatchPrompt(input.body, session)
+    const prompt = await acpDispatchPrompt(input.body, session)
     if (!Array.isArray(prompt)) {
       return { state: 'rejected', ...prompt }
     }
@@ -166,11 +170,6 @@ export class AcpStructuredSessionAdapter implements StructuredAgentSessionAdapte
     // The write is the admission; the agent's first event for the turn settles it.
     return { state: 'admitted' }
   }
-
-  stoppedMessageDelivery = (): 'carry' => 'carry'
-
-  prepareDispatch: NonNullable<StructuredAgentSessionAdapter['prepareDispatch']> = (input) =>
-    prepareAcpDispatch(input.body, input.owed, this.live(input.sessionId), input.signal)
 
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = async (input) =>
     this.live(input.sessionId).turns.compact(input.command)

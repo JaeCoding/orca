@@ -38,7 +38,6 @@ import type {
 } from '../../../shared/agent-session-wire'
 import type { AgentSessionRefusalReason } from '../../../shared/agent-session-wire-refusals'
 import type { SubmissionRejectionFact } from '../../../shared/agent-session-failure'
-import type { AgentSessionPreparedDispatch } from './structured-agent-session-prepared-dispatch'
 import type { StructuredAgentSessionStoppedHistoryAdapter } from './structured-agent-session-stopped-history-adapter'
 import type {
   AgentSessionCancelOutcome,
@@ -306,8 +305,6 @@ export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & 
     requestedAt?: number
     /** Revalidate after preparation, immediately before writing to the provider. */
     beforeDispatch?: () => Promise<void>
-    /** This send as `prepareDispatch` prepared it, history included: written exactly as is. */
-    prepared?: AgentSessionPreparedDispatch
   }): Promise<AgentSessionDispatchOutcome>
   /** How this session narrows its agent's declared rewind; `agent` answers for one with no child
    *  running. The router applies the declaration first, so an adapter's answer never widens it. */

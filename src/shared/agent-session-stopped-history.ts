@@ -1,6 +1,8 @@
-// Stopped messages the agent is still owed, derived from the journal on each handover (host only).
-// One is covered by an append record that no later row proves refused (Claude, Codex), or by an
-// ACP or Pi carrier's `carries` unless that carrier was refused before anything reached the agent.
+// Stopped messages the agent is still owed, derived from the journal on each handover (host only),
+// and delivered with the person's next send that opens a turn: injected into the agent's own log
+// where it can take them (Codex), else carried at the front of that send. One is covered by an
+// injection record no later row proves refused, or by a carrier's `carries` unless that carrier was
+// refused before anything reached the agent. Words only: a stopped message's images are not replayed.
 
 import { readAgentSessionFailureFact, type SubmissionRejectionKind } from './agent-session-failure'
 import type {
@@ -13,24 +15,27 @@ import {
   dispatchWasWithdrawn
 } from './structured-agent-session-dispatch-rejection'
 
-/** The record Claude writes for its own Stop: written after each stopped message appended to
- *  Claude's log, and carried after each one in an ACP or Pi send. */
+/** The record Claude writes for its own Stop, carried after each stopped message. */
 export const STOPPED_MESSAGE_INTERRUPTED_MARKER = '[Request interrupted by user]'
+
+// Encoded bytes of one delivery's words. A send admits at most 256 KiB encoded (`MAX_PROMPT_BYTES`),
+// so the newest always fits, and beside a words-only send this stays far under every agent's line.
+const STOPPED_HISTORY_MAX_ENCODED_BYTES = 1024 * 1024
 
 export type StoppedHistoryJournal = {
   submissions: readonly AgentJournalSubmission[]
   /** Each handed-over send's carried history, by its client message id. */
   carried: ReadonlyMap<string, readonly string[]>
-  /** Each append not proven refused, by append id. */
-  appended: ReadonlyMap<string, { readonly messageIds: readonly string[] }>
+  /** Each injection not proven refused, by injection id. */
+  injected: ReadonlyMap<string, { readonly messageIds: readonly string[] }>
   /** The latest /clear's sequence; 0 when none. */
   clearSequence: number
   body: (clientMessageId: string) => AgentJournalItemBody | null
 }
 
 export type OwedStoppedMessage = {
-  submission: AgentJournalSubmission
-  body: AgentJournalMessageItem
+  clientMessageId: string
+  words: string
 }
 
 /** A person's ordinary message: not a command, a goal, mail another agent sent, or a typed slash
@@ -88,7 +93,7 @@ export function agentSessionStoppedHistoryOwed(
   journal: StoppedHistoryJournal
 ): OwedStoppedMessage[] {
   const byId = new Map(journal.submissions.map((entry) => [entry.clientMessageId, entry]))
-  const covered = new Set([...journal.appended.values()].flatMap((append) => append.messageIds))
+  const covered = new Set([...journal.injected.values()].flatMap((record) => record.messageIds))
   for (const [carrierId, carried] of journal.carried) {
     const carrier = byId.get(carrierId)
     if (carrier && !refusedBeforeWrite(carrier)) {
@@ -109,16 +114,54 @@ export function agentSessionStoppedHistoryOwed(
         return []
       }
       const body = journal.body(submission.clientMessageId)
-      return isOrdinaryPersonMessage(body) ? [{ submission, body }] : []
+      const words = isOrdinaryPersonMessage(body) ? messageWords(body) : ''
+      return words.length > 0 ? [{ submission, words }] : []
     })
     .sort(
       (left, right) =>
         (left.submission.acceptedSequence ?? 0) - (right.submission.acceptedSequence ?? 0)
     )
+    .map(({ submission, words }) => ({ clientMessageId: submission.clientMessageId, words }))
 }
 
-/** Whether this send's handover delivers the stopped messages owed, appended or carried: a person's
- *  ordinary message, a queued card's hand-off included. */
+/** A message's words as an agent joins its text blocks. */
+function messageWords(body: AgentJournalMessageItem): string {
+  return body.blocks
+    .flatMap((block) => (block.type === 'text' && block.text.length > 0 ? [block.text] : []))
+    .join('\n')
+}
+
+/** One delivery: the newest owed messages whose words fit, in the order sent, and every owed
+ *  message it covers, older ones left out included, so none arrives after a newer one. */
+export type StoppedHistoryDelivery = {
+  messages: OwedStoppedMessage[]
+  covers: string[]
+}
+
+export function selectStoppedHistory(
+  owed: readonly OwedStoppedMessage[]
+): StoppedHistoryDelivery | null {
+  if (owed.length === 0) {
+    return null
+  }
+  const encoder = new TextEncoder()
+  let bytes = 0
+  let oldest = owed.length
+  while (oldest > 0) {
+    bytes += encoder.encode(JSON.stringify(owed[oldest - 1]!.words)).length
+    if (bytes > STOPPED_HISTORY_MAX_ENCODED_BYTES) {
+      break
+    }
+    oldest -= 1
+  }
+  return {
+    messages: owed.slice(oldest),
+    covers: owed.map((entry) => entry.clientMessageId)
+  }
+}
+
+/** Whether this send's handover delivers the stopped messages owed: a person's ordinary message, a
+ *  queued card's hand-off included. */
 export function agentSessionSendDeliversStoppedHistory(
   submission: Pick<AgentJournalSubmission, 'source' | 'queuedMessageId'>,
   body: AgentJournalItemBody | null | undefined
@@ -126,4 +169,22 @@ export function agentSessionSendDeliversStoppedHistory(
   // A card's hand-off records no sender; its body's missing `from` says it is the person's.
   const persons = submission.source?.kind === 'user' || submission.queuedMessageId !== undefined
   return persons && isOrdinaryPersonMessage(body)
+}
+
+/** Whether this send can carry stopped messages: words only, so the carried words can never take
+ *  it past an agent's limits, which its attachments' unread size could. */
+export function agentSessionSendCarriesStoppedHistory(body: AgentJournalMessageItem): boolean {
+  return body.blocks.every((block) => block.type === 'text') && messageWords(body).length > 0
+}
+
+/** A words-only send's body with the delivered stopped messages ahead of its own words, each
+ *  followed by the record Claude writes for its own Stop. */
+export function withStoppedHistory(
+  body: AgentJournalMessageItem,
+  messages: readonly OwedStoppedMessage[]
+): AgentJournalMessageItem {
+  const carried = messages
+    .map((entry) => `${entry.words}\n\n${STOPPED_MESSAGE_INTERRUPTED_MARKER}\n\n`)
+    .join('')
+  return { ...body, blocks: [{ type: 'text', text: `${carried}${messageWords(body)}` }] }
 }

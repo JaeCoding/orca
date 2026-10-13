@@ -1,194 +1,117 @@
-// What a handover writes of the stopped messages owed to the agent, chosen in the session's serialized
-// handover step so a phone and a desktop sending at once write each one once: appended to the agent's
-// own log ahead of the send where it can take them (Claude, Codex), else carried in the send (ACP, Pi).
+// What a handover delivers of the stopped messages owed to the agent, chosen in the session's
+// serialized handover step so a phone and a desktop sending at once deliver each one once: injected
+// into the agent's own log ahead of the send where it can take them (Codex), else carried in a
+// words-only send.
 
 import { randomUUID } from 'node:crypto'
 import type {
   AgentJournalMessageItem,
-  AgentJournalSubmission,
-  AgentJournalTurnScope
+  AgentJournalSubmission
 } from '../../../shared/agent-session-journal-types'
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
 import {
+  agentSessionSendCarriesStoppedHistory,
   agentSessionSendDeliversStoppedHistory,
   agentSessionStoppedHistoryOwed,
-  type OwedStoppedMessage
+  selectStoppedHistory,
+  type StoppedHistoryDelivery
 } from '../../../shared/agent-session-stopped-history'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
-import type { JournalStoppedHistory } from '../agent-session-journal/journal-stopped-message-appends'
+import type { JournalStoppedHistory } from '../agent-session-journal/journal-stopped-message-injections'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
-import type { AgentSessionStoppedMessageAppendOutcome } from './structured-agent-session-stopped-history-adapter'
-import type { AgentSessionPreparedDispatch } from './structured-agent-session-prepared-dispatch'
+import type { AgentSessionStoppedMessageInjectionOutcome } from './structured-agent-session-stopped-history-adapter'
 import type { StructuredAgentSessionLogger } from './structured-agent-session-logger'
-import { withTimeout } from '../../../shared/promise-timeout-fallback'
-
-// Preparing runs in the session's lane, so a stalled image read would hold the send, Stop and /clear.
-const STOPPED_HISTORY_PREPARE_TIMEOUT_MS = 2_000
-
-/** None for a steer into a running turn, which may never record it, or for anything but a
- *  person's ordinary send; otherwise the stopped messages owed to the agent, oldest first. */
-export function owedStoppedHistory(
-  ctx: {
-    journal: Pick<AgentSessionJournal, 'submissions' | 'itemBody'> & {
-      stoppedHistory: Pick<JournalStoppedHistory, 'carried' | 'appended'>
-      context: Pick<AgentSessionJournal['context'], 'floor'>
-    }
-  },
-  submission: AgentJournalSubmission,
-  body: AgentJournalMessageItem,
-  turnScope: AgentJournalTurnScope
-): OwedStoppedMessage[] {
-  if (turnScope.kind !== 'thread' || !agentSessionSendDeliversStoppedHistory(submission, body)) {
-    return []
-  }
-  return agentSessionStoppedHistoryOwed({
-    submissions: ctx.journal.submissions(),
-    carried: ctx.journal.stoppedHistory.carried(),
-    appended: ctx.journal.stoppedHistory.appended(),
-    clearSequence: ctx.journal.context.floor()?.sequence ?? 0,
-    body: (id) => ctx.journal.itemBody(agentJournalSubmissionKey(id))
-  })
-}
 
 type StoppedHistoryContext = {
   sessionId: string
   fence: number
-  adapter: Pick<
-    StructuredAgentSessionAdapter,
-    'prepareDispatch' | 'stoppedMessageDelivery' | 'appendStoppedMessages'
-  >
+  journal: Pick<AgentSessionJournal, 'submissions' | 'itemBody' | 'liveTurnScope'> & {
+    context: Pick<AgentSessionJournal['context'], 'floor'>
+    stoppedHistory: Pick<JournalStoppedHistory, 'carried' | 'injected' | 'recordInjection'>
+  }
+  adapter: Pick<StructuredAgentSessionAdapter, 'injectStoppedMessages'>
   logger: StructuredAgentSessionLogger
 }
 
-/** Appends the owed messages to the agent's own log. The record goes first and covers them, so they
- *  are never appended twice; only a proven refusal owes them again. Bookkeeping: whatever happens
- *  is logged, and the send goes on. */
-export async function appendStoppedHistory(
-  ctx: StoppedHistoryContext & {
-    journal: Pick<AgentSessionJournal, 'liveTurnScope'> & {
-      stoppedHistory: Pick<JournalStoppedHistory, 'recordAppend'>
-    }
-  },
-  owed: readonly OwedStoppedMessage[]
+/** None for a steer into a running turn, which may never record it, or for anything but a person's
+ *  ordinary send; otherwise what this handover delivers of the stopped messages owed. */
+function stoppedHistoryDelivery(
+  ctx: StoppedHistoryContext,
+  submission: AgentJournalSubmission,
+  body: AgentJournalMessageItem
+): StoppedHistoryDelivery | null {
+  if (
+    ctx.journal.liveTurnScope().kind !== 'thread' ||
+    !agentSessionSendDeliversStoppedHistory(submission, body)
+  ) {
+    return null
+  }
+  return selectStoppedHistory(
+    agentSessionStoppedHistoryOwed({
+      submissions: ctx.journal.submissions(),
+      carried: ctx.journal.stoppedHistory.carried(),
+      injected: ctx.journal.stoppedHistory.injected(),
+      clearSequence: ctx.journal.context.floor()?.sequence ?? 0,
+      body: (id) => ctx.journal.itemBody(agentJournalSubmissionKey(id))
+    })
+  )
+}
+
+/** Injects the owed messages into the agent's own log. The record goes first and covers them, so
+ *  they are never injected twice; only a proven refusal owes them again. Bookkeeping: whatever
+ *  happens is logged, and the send goes on. */
+export async function injectStoppedHistory(
+  ctx: StoppedHistoryContext,
+  submission: AgentJournalSubmission,
+  body: AgentJournalMessageItem
 ): Promise<void> {
-  const append = ctx.adapter.appendStoppedMessages
-  if (owed.length === 0 || !append) {
+  const delivery = stoppedHistoryDelivery(ctx, submission, body)
+  const inject = ctx.adapter.injectStoppedMessages
+  if (!delivery || !inject) {
     return
   }
-  const appendId = randomUUID()
-  const messageIds = owed.map((entry) => entry.submission.clientMessageId)
-  const log = { scope: 'stopped-history', sessionId: ctx.sessionId, appendId, messageIds }
+  const injectionId = randomUUID()
+  const log = { scope: 'stopped-history', sessionId: ctx.sessionId, injectionId }
   try {
-    await ctx.journal.stoppedHistory.recordAppend({ appendId, messageIds }, ctx.fence)
+    await ctx.journal.stoppedHistory.recordInjection(
+      { injectionId, messageIds: delivery.covers },
+      ctx.fence
+    )
   } catch (error) {
     // Unrecorded, so unwritten: they stay owed.
-    ctx.logger.warn('recording a stopped-message append failed', {
-      ...log,
-      error
-    })
+    ctx.logger.warn('recording a stopped-message injection failed', { ...log, error })
     return
   }
-  let result: AgentSessionStoppedMessageAppendOutcome
+  let result: AgentSessionStoppedMessageInjectionOutcome
   try {
-    result = await append({
+    result = await inject({
       sessionId: ctx.sessionId,
       fence: ctx.fence,
-      messages: owed,
-      turnLive: () => ctx.journal.liveTurnScope().kind !== 'thread'
+      messages: delivery.messages
     })
   } catch (error) {
-    result = {
-      outcome: 'unknown',
-      reason: error instanceof Error ? error.message : String(error)
-    }
+    result = { outcome: 'unknown', reason: error instanceof Error ? error.message : String(error) }
   }
   if (result.outcome === 'accepted') {
     return
   }
-  if (result.outcome === 'unreadable') {
-    ctx.logger.warn('stopped messages had nothing left to append', log)
-    return
-  }
-  ctx.logger.warn('appending stopped messages did not settle', {
-    ...log,
-    ...result
-  })
+  ctx.logger.warn('injecting stopped messages did not settle', { ...log, ...result })
   if (result.outcome === 'refused') {
     await ctx.journal.stoppedHistory
-      .recordAppend({ appendId, refused: true }, ctx.fence)
+      .recordInjection({ injectionId, refused: true }, ctx.fence)
       .catch((error: unknown) =>
-        ctx.logger.warn('recording a refused stopped-message append failed', {
-          ...log,
-          error
-        })
+        ctx.logger.warn('recording a refused stopped-message injection failed', { ...log, error })
       )
   }
 }
 
-/** The words of the leading owed messages that have some, images left out; empty when the oldest
- *  has none, which then waits rather than ride as nothing. */
-function owedWords(owed: readonly OwedStoppedMessage[]): OwedStoppedMessage[] {
-  const words: OwedStoppedMessage[] = []
-  for (const entry of owed) {
-    const blocks = entry.body.blocks.filter((block) => block.type === 'text' && block.text !== '')
-    if (blocks.length === 0) {
-      break
-    }
-    words.push({ ...entry, body: { ...entry.body, blocks } })
-  }
-  return words
-}
-
-/** The send prepared once with the owed history that fits, or null to send it alone as before:
- *  none fits, the send alone fails preparation (its own refusal follows), or preparing failed or
- *  outlasted `timeoutMs`, which is logged. A stopped image too slow to read is left out on its own;
- *  past the whole bound, the messages ride with their words alone, read no further. History never
- *  refuses or holds up a send; preparing writes nothing, so a late result is dropped. */
-export async function prepareStoppedHistory(
+/** What a words-only send carries of the owed messages, or null for any other send. */
+export function carriedStoppedHistory(
   ctx: StoppedHistoryContext,
-  body: AgentJournalMessageItem,
-  owed: readonly OwedStoppedMessage[],
-  timeoutMs = STOPPED_HISTORY_PREPARE_TIMEOUT_MS
-): Promise<AgentSessionPreparedDispatch | null> {
-  const prepare = ctx.adapter.prepareDispatch
-  if (owed.length === 0 || !prepare) {
-    return null
-  }
-  const failed = (error: unknown): null => {
-    ctx.logger.warn('preparing stopped history failed; the send goes alone', {
-      scope: 'stopped-history',
-      sessionId: ctx.sessionId,
-      error
-    })
-    return null
-  }
-  const giveUp = new AbortController()
-  const preparing = (
-    history: readonly OwedStoppedMessage[]
-  ): Promise<AgentSessionPreparedDispatch | null | 'timeout'> =>
-    withTimeout<AgentSessionPreparedDispatch | null | 'timeout'>(
-      Promise.resolve()
-        .then(() =>
-          prepare.call(ctx.adapter, {
-            sessionId: ctx.sessionId,
-            fence: ctx.fence,
-            body,
-            owed: history,
-            signal: giveUp.signal
-          })
-        )
-        .catch(failed),
-      timeoutMs,
-      'timeout'
-    )
-  let prepared = await preparing(owed)
-  if (prepared === 'timeout') {
-    giveUp.abort()
-    const words = owedWords(owed)
-    prepared = words.length > 0 ? await preparing(words) : 'timeout'
-  }
-  if (prepared === 'timeout') {
-    return failed(new Error('preparing stopped history took too long'))
-  }
-  return prepared && prepared.carries.length > 0 ? prepared : null
+  submission: AgentJournalSubmission,
+  body: AgentJournalMessageItem
+): StoppedHistoryDelivery | null {
+  return agentSessionSendCarriesStoppedHistory(body)
+    ? stoppedHistoryDelivery(ctx, submission, body)
+    : null
 }

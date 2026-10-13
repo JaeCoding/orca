@@ -1,6 +1,11 @@
 import { agentSessionProviderHandleChainHead } from '../../../shared/agent-session-provider-handle'
+import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
 import { agentJournalLinkageFields } from '../../../shared/agent-session-journal-producer'
-import { parseAgentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
+import {
+  agentJournalItemKey,
+  agentJournalSubmissionKey,
+  parseAgentJournalItemKey
+} from '../../../shared/agent-session-journal-item-key'
 import type { JournalOperationReceipt } from '../agent-session-journal/journal-row-writer'
 import type {
   AgentSessionRewindParams,
@@ -18,9 +23,7 @@ import { conversationCommandBlocked } from './structured-conversation-command-ad
 import { rewindRefusal } from './structured-rewind-refusal'
 import { renameRewindTurnOpener } from './structured-rewind-journal-body'
 import { persistRewindRecord, recoverStructuredRewind } from './structured-rewind-recovery'
-import { retainedWithProviderItems } from './structured-rewind-retained-host-rows'
-import { rewindRestatedSends } from './structured-rewind-restated-sends'
-import { rewindBoundaryIndex, rewindProviderKey } from './structured-rewind-boundary'
+import { mergeRetainedHostLifecycleRows } from './structured-rewind-retained-host-rows'
 
 export async function rewindStructuredAgentSession(
   context: StructuredAgentSessionMutationContext,
@@ -108,7 +111,19 @@ export async function rewindStructuredAgentSession(
           const contextStart = contextFloor
             ? snapshot.items.findIndex((item) => item.sequence > contextFloor.sequence)
             : 0
-          const providerKey = rewindProviderKey(snapshot.submissions)
+          const providerKeys = new Map(
+            snapshot.submissions.flatMap((submission) =>
+              submission.dispatchState === 'accepted' && submission.providerItemId
+                ? [
+                    [
+                      agentJournalSubmissionKey(submission.clientMessageId),
+                      submission.providerItemId
+                    ] as const
+                  ]
+                : []
+            )
+          )
+          const providerKey = (itemId: string) => providerKeys.get(itemId) ?? itemId
           if (ctx.journal.cursor().epoch !== params.expectedEpoch) {
             return rewindRefusal('stale-epoch')
           }
@@ -128,12 +143,18 @@ export async function rewindStructuredAgentSession(
             if (key.threadId !== head.nativeId) {
               return rewindRefusal('invalid-target')
             }
-            boundary = rewindBoundaryIndex(
-              snapshot.items,
-              key,
-              contextFloor?.sequence ?? 0,
-              providerKey
-            )
+            boundary = snapshot.items.findIndex((item) => {
+              if (contextFloor && item.sequence <= contextFloor.sequence) {
+                return false
+              }
+              const identity = parseAgentJournalItemKey(providerKey(item.itemId))
+              return (
+                (identity?.provider === 'codex' &&
+                  identity.threadId === key.threadId &&
+                  identity.turnId === key.turnId) ||
+                readAgentJournalTurn(item.body)?.turnId === key.turnId
+              )
+            })
           } else {
             return rewindRefusal('invalid-target')
           }
@@ -176,17 +197,18 @@ export async function rewindStructuredAgentSession(
           }
           await persistRewindRecord(store, sessionId, ctx.fence, prepared)
           ctx.publish()
-          const restated = rewindRestatedSends(ctx.journal)
           const provider = await ctx.adapter.rewind!({
             sessionId,
             fence: ctx.fence,
             beforeTurnId: key.provider === 'codex' ? key.turnId : '',
             onPrepared: async (items) => {
-              const retained = retainedWithProviderItems(
+              const retained = mergeRetainedHostLifecycleRows(
                 prepared.retained,
-                items,
-                restated,
-                ctx.now()
+                items.map(({ identity, body }) => ({
+                  itemId: agentJournalItemKey(identity),
+                  body,
+                  observedAt: ctx.now()
+                }))
               )
               if (
                 retained.length > 10_000 ||
@@ -217,7 +239,14 @@ export async function rewindStructuredAgentSession(
             return rewindRefusal(reason)
           }
           const confirmed = provider.items
-            ? retainedWithProviderItems(prepared.retained, provider.items, restated, ctx.now())
+            ? mergeRetainedHostLifecycleRows(
+                prepared.retained,
+                provider.items.map(({ identity, body }) => ({
+                  itemId: agentJournalItemKey(identity),
+                  body,
+                  observedAt: ctx.now()
+                }))
+              )
             : prepared.retained
           if (
             confirmed.length > 10_000 ||

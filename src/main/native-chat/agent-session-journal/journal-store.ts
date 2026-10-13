@@ -61,7 +61,7 @@ import {
   journalStopEventRowBuilder
 } from './journal-stop-and-resume-rows'
 import type { AgentJournalEpochReason, JournalStopEvent } from './journal-row-schema'
-import type { JournalStoppedHistory } from './journal-stopped-message-appends'
+import type { JournalStoppedHistory } from './journal-stopped-message-injections'
 import type {
   JournalOperationReceipt,
   JournalRowTransactionHook,

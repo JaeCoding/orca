@@ -17,7 +17,7 @@ import { isStructuredAgentSessionStopNote } from './structured-agent-session-com
 import { findSequenceGap } from '../agent-session-journal/journal-cursor'
 import {
   isJournalStopOrResumeRow,
-  isJournalStoppedMessageAppendRow,
+  isJournalStoppedMessageInjectionRow,
   type JournalRow
 } from '../agent-session-journal/journal-row-schema'
 
@@ -55,7 +55,7 @@ export function projectJournalBatch(input: {
       }
       continue
     }
-    if (isJournalStopOrResumeRow(row) || isJournalStoppedMessageAppendRow(row)) {
+    if (isJournalStopOrResumeRow(row) || isJournalStoppedMessageInjectionRow(row)) {
       // Host-only: no item; a queue pause one feeds is published beside the list.
       continue
     }

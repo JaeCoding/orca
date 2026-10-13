@@ -6,7 +6,6 @@
 // failure ends the turn (measured), so the send may be in the conversation: any end is doubt.
 // An unstarted send's `cancelled` lands before the Stop's answer, so it settles if that is lost.
 
-import { claudeStoppedMessageAppendArmed } from './claude-stopped-message-append'
 import {
   agentSessionFailureFact,
   type SubmissionRejectionKind
@@ -67,13 +66,9 @@ export function observeClaudeCommandLifecycle(
   }
 }
 
-/** A send the CLI took, until its echo, a terminal state or exit, or an append it has not settled:
- *  the sweep must not rest its child. */
+/** A send the CLI took, until its echo, a terminal state or exit: the sweep must not rest its child. */
 export function claudeHoldsDispatch(session: ClaudeSession): boolean {
-  return (
-    session.dispatchWaiters.some((waiter) => waiter.commandLifecycle !== undefined) ||
-    claudeStoppedMessageAppendArmed(session)
-  )
+  return session.dispatchWaiters.some((waiter) => waiter.commandLifecycle !== undefined)
 }
 
 /**

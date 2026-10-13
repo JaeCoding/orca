@@ -14,7 +14,6 @@ import {
 } from '../../shared/agent-session-failure-words'
 import { TUI_AGENT_DISPLAY_NAMES } from '../../shared/tui-agent-display-names'
 import { claudeRecord } from './claude-structured-item-translation'
-import { readStoppedImage } from '../native-chat/agent-session-wire/structured-agent-session-stopped-image-read'
 
 /** Orca refused the message's content, as opposed to failing to read an attachment. */
 export class ClaudeDispatchContentError extends Error {
@@ -68,24 +67,19 @@ type ImageBudget = {
   localBytes: number
 }
 
-/** A local image's bytes, refused past `maxBytes` (Claude's own limit unless another agent's). */
-export async function readClaudeImage(
-  path: string,
-  openImpl: typeof open = open,
-  maxBytes = MAX_IMAGE_BYTES
-): Promise<Buffer> {
+export async function readClaudeImage(path: string, openImpl: typeof open = open): Promise<Buffer> {
   const file = await openImpl(path, 'r')
   try {
     const tooLarge = (): Error =>
-      attachmentError(`Claude image must be no larger than ${maxBytes} bytes`, {
+      attachmentError(`Claude image must be no larger than ${MAX_IMAGE_BYTES} bytes`, {
         reason: 'tooLarge',
-        limit: maxBytes
+        limit: MAX_IMAGE_BYTES
       })
     const info = await file.stat()
     if (!info.isFile()) {
       throw attachmentError('Claude image must be a file', { reason: 'notAFile' })
     }
-    if (info.size > maxBytes) {
+    if (info.size > MAX_IMAGE_BYTES) {
       throw tooLarge()
     }
     const buffer = Buffer.allocUnsafe(info.size + 1)
@@ -100,7 +94,7 @@ export async function readClaudeImage(
     // A file can grow after the initial stat and after the final read returns
     // zero. Prove the descriptor's size matches what was copied before sending.
     const finalInfo = await file.stat()
-    if (bytesRead > maxBytes) {
+    if (bytesRead > MAX_IMAGE_BYTES) {
       throw tooLarge()
     }
     if (finalInfo.size !== bytesRead) {
@@ -124,9 +118,10 @@ const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.webp': 'image/webp'
 }
 
-type ImageRefBlock = Extract<NativeChatBlock, { type: 'image-ref' }>
-
-async function imageContent(block: ImageRefBlock, budget: ImageBudget): Promise<unknown> {
+async function imageContent(
+  block: Extract<NativeChatBlock, { type: 'image-ref' }>,
+  budget: ImageBudget
+): Promise<unknown> {
   budget.count += 1
   if (budget.count > MAX_IMAGE_COUNT) {
     throw attachmentError(`Claude messages support at most ${MAX_IMAGE_COUNT} images`, {
@@ -171,8 +166,7 @@ async function imageContent(block: ImageRefBlock, budget: ImageBudget): Promise<
  * the model as prose instead of being expanded.
  */
 export async function claudeDispatchMessageContent(
-  body: AgentJournalMessageItem,
-  readImage: (block: ImageRefBlock, budget: ImageBudget) => Promise<unknown> = imageContent
+  body: AgentJournalMessageItem
 ): Promise<unknown[]> {
   if (body.role !== 'user') {
     // No Orca client sends one, so the fault is Orca's.
@@ -188,10 +182,7 @@ export async function claudeDispatchMessageContent(
     if (block.type === 'text' && block.text.length > 0) {
       texts.push(block.text)
     } else if (block.type === 'image-ref') {
-      const image = await readImage(block, imageBudget)
-      if (image !== null) {
-        images.push(image)
-      }
+      images.push(await imageContent(block, imageBudget))
     }
   }
   // Join rather than append each block: only the trailing text is read as the prompt, so several
@@ -204,17 +195,6 @@ export async function claudeDispatchMessageContent(
     )
   }
   return content
-}
-
-/** A stopped message's content as a send writes it, less any image left out: no longer read, too
- *  slow to read, or read after the preparation gave up (`signal`); null when nothing is left. */
-export async function claudeStoppedMessageContent(
-  body: AgentJournalMessageItem,
-  signal?: AbortSignal
-): Promise<unknown[] | null> {
-  return claudeDispatchMessageContent(body, (block, budget) =>
-    readStoppedImage(block.path, () => imageContent(block, budget), signal)
-  ).catch(() => null)
 }
 
 /** The prompt Claude recovers from a dispatch, or null when the turn carries no prompt. */

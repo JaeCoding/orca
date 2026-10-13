@@ -2,22 +2,13 @@ import {
   agentJournalItemKey,
   agentJournalSubmissionKey
 } from '../../../shared/agent-session-journal-item-key'
-import type {
-  AgentJournalCursor,
-  AgentSessionJournalIdentity
-} from '../../../shared/agent-session-journal-types'
-import { agentSessionJournalProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
+import type { AgentJournalCursor } from '../../../shared/agent-session-journal-types'
 import type { JournalReplacementItem } from './journal-epoch-replacement'
 import type { JournalReducerState } from './journal-reducer'
 import { buildJournalItemRow, buildJournalTombstoneRow } from './journal-row-builders'
 import type { JournalRowWriter, JournalOperationReceipt } from './journal-row-writer'
 import { buildJournalQueueClearRow } from './journal-stop-and-resume-rows'
-import {
-  journalRestatedAppendRows,
-  journalRestatedSendRows
-} from './journal-rewind-restated-send-rows'
 import { journalQueuePauseRestatement } from './queued-message-pause'
-import { buildJournalStoppedMessageAppendRow } from './journal-stopped-message-appends'
 import type { JournalQueuedMessages } from './journal-queued-messages'
 import type { JournalRow } from './journal-row-schema'
 
@@ -28,10 +19,8 @@ export async function rewindJournalContext(input: {
   floor: AgentJournalCursor
   fence: number
   items: readonly JournalReplacementItem[]
-  identity: AgentSessionJournalIdentity
   receipt: (cursor: AgentJournalCursor) => JournalOperationReceipt
 }): Promise<AgentJournalCursor> {
-  const providerHandle = agentSessionJournalProviderHandle(input.identity)
   let receipt: JournalOperationReceipt | undefined
   const rows = await input.writer.enqueueRows(
     () => {
@@ -67,32 +56,7 @@ export async function rewindJournalContext(input: {
           ...(retireSubmission ? { retireSubmission: true } : {})
         }))
       }
-      // Every append record after the floor goes; the ones the provider kept are restated below.
-      for (const [appendId, record] of state.stoppedMessageAppends) {
-        if (record.sequence > input.floor.sequence) {
-          plan.push((seq, ts) =>
-            buildJournalStoppedMessageAppendRow({
-              state,
-              seq,
-              ts,
-              fence: input.fence,
-              append: { appendId, refused: true }
-            })
-          )
-        }
-      }
       for (const item of input.items) {
-        // A restated stopped send's rows come first; the item row below brings back its bubble,
-        // which the tombstone above shadows.
-        const restated = journalRestatedSendRows({
-          state,
-          providerHandle,
-          fence: input.fence,
-          item
-        })
-        plan.push(
-          ...restated.map((build) => (seq: number, ts: number) => build(seq, item.observedAt ?? ts))
-        )
         const itemId = agentJournalItemKey(item.identity)
         const existing = state.items.get(itemId)
         if (existing && existing.sequence <= input.floor.sequence) {
@@ -117,7 +81,6 @@ export async function rewindJournalContext(input: {
           }),
           revision
         }))
-        plan.push(...journalRestatedAppendRows({ state, fence: input.fence, item }))
       }
       plan.push((seq, ts) =>
         buildJournalQueueClearRow({ state, seq, ts, fence: input.fence, clear: pause })

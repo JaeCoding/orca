@@ -102,25 +102,25 @@ export type JournalTombstoneRow = JournalRowBase & {
    *  lifts it. Absent: the mark's own row. */
   queueReopenSince?: number
   queueClear?: { operationId: string; messageIds: string[]; lifted?: true }
-  /** Present: not a removal but stopped messages appended to the agent's own log, on an id no item
-   *  ever takes. Host-only. */
-  stoppedMessageAppend?: JournalStoppedMessageAppend
+  /** Present: not a removal but stopped messages injected into the agent's own log, on an id no
+   *  item ever takes. Host-only. */
+  stoppedMessageInjection?: JournalStoppedMessageInjection
   /** A rewind retires the removed send's echo claimant as well as its visible item. */
   retireSubmission?: true
 }
 
-/** Written before a handover appends stopped messages to the agent's own log, so they are never
- *  appended again. A later row with the same id and `refused` takes it back, which owes them again
- *  (`agent-session-stopped-history.ts`): nothing reached the agent, or a rewind dropped it. */
-export type JournalStoppedMessageAppend =
-  | { appendId: string; messageIds: string[] }
-  | { appendId: string; refused: true }
+/** Written before a handover injects stopped messages into the agent's own log, so they are never
+ *  injected again. A later row with the same id and `refused` takes it back, which owes them again
+ *  (`agent-session-stopped-history.ts`): nothing reached the agent. */
+export type JournalStoppedMessageInjection =
+  | { injectionId: string; messageIds: string[] }
+  | { injectionId: string; refused: true }
 
-/** A stopped-message append's record or refusal. Any value counts, so it never removes an item. */
-export function isJournalStoppedMessageAppendRow(
+/** A stopped-message injection's record or refusal. Any value counts, so it never removes an item. */
+export function isJournalStoppedMessageInjectionRow(
   row: JournalRow
-): row is JournalTombstoneRow & { stoppedMessageAppend: unknown } {
-  return row.kind === 'tombstone' && row.stoppedMessageAppend !== undefined
+): row is JournalTombstoneRow & { stoppedMessageInjection: unknown } {
+  return row.kind === 'tombstone' && row.stoppedMessageInjection !== undefined
 }
 
 /** One Stop that took effect. Temporary carrier: a tombstone's extra key, which every host ignores,

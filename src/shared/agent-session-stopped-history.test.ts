@@ -7,8 +7,11 @@ import type {
   AgentJournalSubmission
 } from './agent-session-journal-types'
 import {
+  agentSessionSendCarriesStoppedHistory,
   agentSessionSendDeliversStoppedHistory,
   agentSessionStoppedHistoryOwed,
+  selectStoppedHistory,
+  withStoppedHistory,
   type StoppedHistoryJournal
 } from './agent-session-stopped-history'
 
@@ -65,7 +68,7 @@ function owed(
   submissions: AgentJournalSubmission[],
   options: {
     carried?: Record<string, string[]>
-    appended?: Record<string, string[]>
+    injected?: Record<string, string[]>
     clearSequence?: number
     bodies?: Record<string, AgentJournalItemBody>
   } = {}
@@ -73,13 +76,13 @@ function owed(
   const journal: StoppedHistoryJournal = {
     submissions,
     carried: new Map(Object.entries(options.carried ?? {})),
-    appended: new Map(
-      Object.entries(options.appended ?? {}).map(([id, messageIds]) => [id, { messageIds }])
+    injected: new Map(
+      Object.entries(options.injected ?? {}).map(([id, messageIds]) => [id, { messageIds }])
     ),
     clearSequence: options.clearSequence ?? 0,
     body: (id) => options.bodies?.[id] ?? message(id)
   }
-  return agentSessionStoppedHistoryOwed(journal).map((entry) => entry.submission.clientMessageId)
+  return agentSessionStoppedHistoryOwed(journal).map((entry) => entry.clientMessageId)
 }
 
 describe('which stopped messages the agent is owed', () => {
@@ -121,9 +124,34 @@ describe('which stopped messages the agent is owed', () => {
           sent('goal', 6, STOPPED),
           sent('slash', 7, STOPPED)
         ],
-        { bodies: { ...bodies, mailBody: bodies.mail!, slash: message('/review foo') } }
+        {
+          bodies: {
+            ...bodies,
+            mailBody: bodies.mail!,
+            slash: message('/review foo')
+          }
+        }
       )
     ).toEqual([])
+  })
+
+  it('owes a stopped message by its words alone, and none that has no words', () => {
+    const image = { type: 'image-ref' as const, path: '/tmp/shot.png' }
+    const journal: StoppedHistoryJournal = {
+      submissions: [sent('a', 2, STOPPED), sent('b', 3, STOPPED)],
+      carried: new Map(),
+      injected: new Map(),
+      clearSequence: 0,
+      body: (id) =>
+        id === 'a'
+          ? message('', { blocks: [image] })
+          : message('', {
+              blocks: [{ type: 'text', text: 'look' }, image, { type: 'text', text: 'here' }]
+            })
+    }
+    expect(agentSessionStoppedHistoryOwed(journal)).toEqual([
+      { clientMessageId: 'b', words: 'look\nhere' }
+    ])
   })
 
   it('owes nothing from before the latest /clear', () => {
@@ -174,8 +202,8 @@ describe('which stopped messages the agent is owed', () => {
   })
 
   it('any carrier refused with proof it never reached the agent leaves what it carried owed', () => {
-    // Pi's sign-in check runs before it records a prompt; ACP's encoder refuses before any byte.
-    for (const kind of ['notSignedIn', 'writeFailed', 'providerRejected'] as const) {
+    // Pi's sign-in check runs before it records a prompt; ACP's lost child before it writes one.
+    for (const kind of ['notSignedIn', 'providerExited', 'providerRejected'] as const) {
       expect(
         owed([sent('a', 2, STOPPED), sent('c', 9, rejected(kind, { neverReachedAgent: true }))], {
           carried: { c: ['a'] }
@@ -209,11 +237,11 @@ describe('which stopped messages the agent is owed', () => {
     expect(owed([sent('a', 2, STOPPED)], { carried: { gone: ['a'] } })).toEqual(['a'])
   })
 
-  it('an append record covers what it names, whatever came of the write', () => {
+  it('an injection record covers what it names, whatever came of the write', () => {
     // A proven refusal removes the record, so only a standing one is read.
     expect(
       owed([sent('a', 2, STOPPED), sent('b', 3, STOPPED), sent('c', 4, STOPPED)], {
-        appended: { first: ['a'], second: ['c'] }
+        injected: { first: ['a'], second: ['c'] }
       })
     ).toEqual(['b'])
   })
@@ -222,7 +250,7 @@ describe('which stopped messages the agent is owed', () => {
     expect(
       owed([sent('a', 2, STOPPED), sent('b', 3, STOPPED), sent('c', 9, rejected('writeFailed'))], {
         carried: { c: ['a', 'b'] },
-        appended: { first: ['b'] }
+        injected: { first: ['b'] }
       })
     ).toEqual(['a'])
   })
@@ -250,7 +278,71 @@ describe('which sends carry stopped history', () => {
       agentSessionSendDeliversStoppedHistory({ source: { kind: 'agent' } }, message('mail'))
     ).toBe(false)
     expect(agentSessionSendDeliversStoppedHistory({}, message('preamble'))).toBe(false)
-    const mail = message('task', { from: { kind: 'agent', senders: [], orchestration: null } })
+    const mail = message('task', {
+      from: { kind: 'agent', senders: [], orchestration: null }
+    })
     expect(agentSessionSendDeliversStoppedHistory({ queuedMessageId: 'card' }, mail)).toBe(false)
+  })
+})
+
+describe('what one delivery holds', () => {
+  const stopped = (id: string, words: string) => ({
+    clientMessageId: id,
+    words
+  })
+
+  it('holds every owed message in the order sent while their words fit', () => {
+    const owed = [stopped('a', 'one'), stopped('b', 'two')]
+    expect(selectStoppedHistory(owed)).toEqual({
+      messages: owed,
+      covers: ['a', 'b']
+    })
+    expect(selectStoppedHistory([])).toBeNull()
+  })
+
+  it('keeps the newest that fit and covers the older ones left out, so none arrives late', () => {
+    // Quotes double in JSON, so each costs about 600 KiB encoded against the 1 MiB bound.
+    const big = '"'.repeat(300 * 1024)
+    const owed = [stopped('a', 'first'), stopped('b', big), stopped('c', big)]
+    expect(selectStoppedHistory(owed)).toEqual({
+      messages: [owed[2]],
+      covers: ['a', 'b', 'c']
+    })
+  })
+})
+
+describe('a carried send', () => {
+  it('only a words-only send carries, as its words alone bound its size', () => {
+    expect(agentSessionSendCarriesStoppedHistory(message('next'))).toBe(true)
+    expect(
+      agentSessionSendCarriesStoppedHistory(
+        message('', {
+          blocks: [
+            { type: 'text', text: 'see' },
+            { type: 'image-ref', path: '/x.png' }
+          ]
+        })
+      )
+    ).toBe(false)
+    expect(agentSessionSendCarriesStoppedHistory(message(''))).toBe(false)
+  })
+
+  it("leads with each stopped message and Claude's interrupted record, then the person's words", () => {
+    const body = message('', {
+      blocks: [
+        { type: 'text', text: 'go ahead' },
+        { type: 'text', text: 'please' }
+      ]
+    })
+    expect(
+      withStoppedHistory(body, [
+        { clientMessageId: 'a', words: 'say pinecone' },
+        { clientMessageId: 'b', words: 'then stop' }
+      ])
+    ).toEqual(
+      message(
+        'say pinecone\n\n[Request interrupted by user]\n\nthen stop\n\n[Request interrupted by user]\n\ngo ahead\nplease'
+      )
+    )
   })
 })

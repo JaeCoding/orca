@@ -25,10 +25,6 @@ import { acpAgentName } from './acp-structured-acquire'
 import type { AcpStructuredConnection } from './acp-structured-connection'
 import { acpSessionAcceptsImages } from './acp-structured-options'
 import type { ContentBlock } from './generated/acp-protocol.generated'
-import type { OwedStoppedMessage } from '../../shared/agent-session-stopped-history'
-import type { AgentSessionPreparedDispatch } from '../native-chat/agent-session-wire/structured-agent-session-prepared-dispatch'
-import { fitStoppedHistory } from '../native-chat/agent-session-wire/structured-agent-session-stopped-history-fit'
-import { STOPPED_IMAGE_READ_TIMEOUT_MS } from '../native-chat/agent-session-wire/structured-agent-session-stopped-image-read'
 
 const ACP_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 /** A prompt is one JSON-RPC line; this leaves room for the request around its blocks. */
@@ -108,17 +104,11 @@ async function imageBlock(
   return { block: { type: 'image', mimeType, data: data.toString('base64') }, bytes: data.length }
 }
 
-type AcpMeasuredPrompt = {
-  blocks: ContentBlock[]
-  lineBytes: number
-  images: number
-  imageBytes: number
-}
-
-async function measuredPromptBlocks(
+/** The prompt for `body`; throws `AcpPromptContentError` for what Orca will not send. */
+export async function acpPromptBlocks(
   body: AgentJournalMessageItem,
   acceptsImages: boolean
-): Promise<AcpMeasuredPrompt> {
+): Promise<ContentBlock[]> {
   const blocks: ContentBlock[] = []
   const signal = AbortSignal.timeout(READ_TIMEOUT_MS)
   let imageCount = 0
@@ -139,22 +129,11 @@ async function measuredPromptBlocks(
     imageBytes += image.bytes
     blocks.push(image.block)
   }
-  // The whole prompt is one line, whatever it holds; the writer refuses a longer one.
-  const lineBytes = Buffer.byteLength(JSON.stringify(blocks))
-  if (lineBytes > ACP_PROMPT_LINE_BUDGET) {
-    throw imageCount > 0
-      ? attachmentProblem({ reason: 'totalTooLarge', limit: ACP_PROMPT_IMAGE_MAX_BYTES })
-      : new AcpPromptContentError(agentSessionFailureFact('writeFailed'))
+  // Only images can carry a message past one line here; their words are the refusal's.
+  if (imageCount > 0 && Buffer.byteLength(JSON.stringify(blocks)) > ACP_PROMPT_LINE_BUDGET) {
+    throw attachmentProblem({ reason: 'totalTooLarge', limit: ACP_PROMPT_IMAGE_MAX_BYTES })
   }
-  return { blocks, lineBytes, images: imageCount, imageBytes }
-}
-
-/** The prompt for `body`; throws `AcpPromptContentError` for what Orca will not send. */
-export async function acpPromptBlocks(
-  body: AgentJournalMessageItem,
-  acceptsImages: boolean
-): Promise<ContentBlock[]> {
-  return (await measuredPromptBlocks(body, acceptsImages)).blocks
+  return blocks
 }
 
 /** The prompt for `body` to `session`'s agent, or Orca's refusal of it in words that name the
@@ -177,66 +156,4 @@ export async function acpDispatchPrompt(
     }
     throw error
   }
-}
-
-/** An ACP prompt prepared with its stopped history: its content blocks, written as is. */
-export class AcpPreparedDispatch implements AgentSessionPreparedDispatch {
-  constructor(
-    readonly carries: readonly string[],
-    readonly prompt: readonly ContentBlock[]
-  ) {}
-}
-
-/** JSON-escaped UTF-8 bytes, which add up as text is joined. */
-function jsonTextBytes(text: string): number {
-  return Buffer.byteLength(JSON.stringify(text)) - 2
-}
-
-/** The prompt with the owed stopped messages that fit its one line, the request around it reserved,
- *  and the agent's image limits: their images, their words in one block, then the send's own blocks
- *  as they are, so its images follow the interruption. Null when none fits or the send alone fails,
- *  whose refusal dispatch gives. */
-export async function prepareAcpDispatch(
-  body: AgentJournalMessageItem,
-  owed: readonly OwedStoppedMessage[],
-  session: Parameters<typeof acpDispatchPrompt>[1],
-  signal?: AbortSignal
-): Promise<AcpPreparedDispatch | null> {
-  const acceptsImages = await acpSessionAcceptsImages(session)
-  const own = await measuredPromptBlocks(body, acceptsImages).catch(() => null)
-  if (!own) {
-    return null
-  }
-  // The carried words' own text block, and the comma after it.
-  const textBlock = Buffer.byteLength(JSON.stringify({ type: 'text', text: '' })) + 1
-  const fit = await fitStoppedHistory({
-    owed,
-    room: {
-      line: ACP_PROMPT_LINE_BUDGET - own.lineBytes - textBlock,
-      images: MAX_IMAGE_COUNT - own.images,
-      bytes: ACP_PROMPT_IMAGE_MAX_BYTES - own.imageBytes
-    },
-    textCost: (text) => ({ line: jsonTextBytes(text) }),
-    ...(signal ? { signal } : {}),
-    image: async (block) => {
-      if (!acceptsImages) {
-        return null
-      }
-      // Each image gets its own read time, so a slow one never times out the rest.
-      const image = await imageBlock(
-        block,
-        ACP_PROMPT_IMAGE_MAX_BYTES,
-        AbortSignal.timeout(STOPPED_IMAGE_READ_TIMEOUT_MS)
-      )
-      const line = Buffer.byteLength(JSON.stringify(image.block)) + 1
-      return { content: image.block, cost: { line, images: 1, bytes: image.bytes } }
-    }
-  })
-  return fit
-    ? new AcpPreparedDispatch(fit.carries, [
-        ...fit.images,
-        { type: 'text', text: fit.text },
-        ...own.blocks
-      ])
-    : null
 }

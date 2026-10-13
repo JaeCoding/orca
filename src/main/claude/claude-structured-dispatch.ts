@@ -16,7 +16,6 @@ import {
   claudeDispatchMessageContent,
   claudeDispatchRejection
 } from './claude-structured-dispatch-content'
-import { endClaudeStoppedMessageAppend } from './claude-stopped-message-append'
 import { dispatchWriteOutcomeUnknownReason } from '../native-chat/agent-session-journal/journal-dispatch-doubt-reasons'
 import { DISPATCH_REJECTED_QUEUE_FULL } from '../../shared/structured-agent-session-dispatch-rejection'
 import {
@@ -101,7 +100,6 @@ export function releaseClaudeDispatchWaitersInDoubt(
  *  `MAX_RETIRED_DISPATCH_WAITERS`. */
 export function retireClaudeDispatchWaiters(session: ClaudeSession): void {
   failClaudeStartup(session, new Error('claude stream-json ended before startup completed'))
-  endClaudeStoppedMessageAppend(session)
   for (const waiter of session.dispatchWaiters.splice(0)) {
     retireWaiter(session, waiter)
     waiter.resolve(null)
@@ -136,7 +134,11 @@ export async function dispatchClaudeTurn(
   }
   const startupFailure = claudeStartupFailureFact(session)
   if (startupFailure) {
-    return { state: 'rejected', ...claudeDispatchRejection(startupFailure) }
+    // Refused before the write, so the agent never saw it.
+    return {
+      state: 'rejected',
+      ...claudeDispatchRejection({ ...startupFailure, neverReachedAgent: true })
+    }
   }
   // Read the sent content, not the journal blocks: only the mapped trailing prompt decides
   // whether Claude runs a command, so the two cannot disagree about which frame settles this.

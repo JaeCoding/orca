@@ -22,7 +22,6 @@ import type {
   AgentSessionCommandAdmission,
   StructuredAgentSessionCommandRun
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import { NdjsonLineTooLongError } from '../../shared/main-process-ndjson-framer'
 import { ACP_COMPACT_PROMPT } from './acp-compaction-turn'
 import { AcpAgentError, AcpConnectionClosedError } from './acp-errors'
 import type { AcpStructuredConnection } from './acp-structured-connection'
@@ -211,18 +210,6 @@ export class AcpStructuredTurns {
       (error: unknown) => {
         if (this.active !== send || error instanceof AcpConnectionClosedError) {
           // A lost connection: the session's end settles the send, as unknown.
-          return
-        }
-        if (
-          error instanceof NdjsonLineTooLongError &&
-          lane.translator.promptUnwritten(send.clientMessageId)
-        ) {
-          // The encoder refused the line before writing a byte: the agent never saw this send.
-          this.reject(
-            send.clientMessageId,
-            agentSessionFailureFact('writeFailed', { neverReachedAgent: true })
-          )
-          this.finish(send)
           return
         }
         if (!(error instanceof AcpAgentError)) {

@@ -9,7 +9,6 @@ import type { JsonlRpcTimelineLane } from '../jsonl-rpc/timeline-lane'
 import { PiRpcContextUsage } from './rpc-context-usage'
 import { PiRpcMessages } from './rpc-messages'
 import { PiRpcPromptDelivery, piRpcFailureFact } from './rpc-prompt-delivery'
-import { piRpcPromptFrame } from './rpc-prompt'
 import { PiRpcIdleCheck } from './rpc-idle-check'
 import { piRpcRetryActivity } from './rpc-retry-activity'
 import { piRpcMessageSchema } from './rpc-protocol'
@@ -58,7 +57,8 @@ export class PiRpcTurns {
       failed: deps.failed
     })
     this.delivery = new PiRpcPromptDelivery({
-      send: (frame) => deps.send(piRpcPromptFrame(frame, this.working)),
+      send: (frame) =>
+        deps.send({ ...frame, streamingBehavior: this.working ? 'steer' : 'followUp' }),
       settled: deps.settled,
       failed: deps.failed,
       accepted: (id, at) => {
@@ -85,9 +85,6 @@ export class PiRpcTurns {
 
   get holdsDispatch(): boolean {
     return this.delivery.holdsDispatch
-  }
-  get heldBytesFree(): number {
-    return this.delivery.heldBytesFree
   }
   get working(): boolean {
     return this.active !== undefined

@@ -6,11 +6,7 @@ import {
 import { agentSessionFailureWords } from '../../shared/agent-session-failure-words'
 import type { AgentSessionDispatchOutcome } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { JsonlRpcRecord } from '../jsonl-rpc/peer'
-import { NdjsonLineTooLongError } from '../../shared/main-process-ndjson-framer'
 import { piRpcPromptReplySchema } from './rpc-protocol'
-
-const MAX_PENDING_PROMPTS = 128
-const MAX_HELD_BYTES = 32 * 1024 * 1024
 
 type Submission = {
   id: string
@@ -59,10 +55,6 @@ export class PiRpcPromptDelivery {
   get holdsDispatch(): boolean {
     return this.waiting.length > 0 || this.retries.size > 0
   }
-  /** How many more prompt bytes the queue holds before it refuses one. */
-  get heldBytesFree(): number {
-    return MAX_HELD_BYTES - this.heldBytes
-  }
 
   async submit(
     id: string,
@@ -74,7 +66,7 @@ export class PiRpcPromptDelivery {
       throw new Error('Pi prompt queue unavailable')
     }
     const bytes = Buffer.byteLength(JSON.stringify(frame))
-    if (this.pending.size >= MAX_PENDING_PROMPTS || bytes > this.heldBytesFree) {
+    if (this.pending.size >= 128 || this.heldBytes + bytes > 32 * 1024 * 1024) {
       return {
         state: 'rejected',
         ...agentSessionFailureWords(agentSessionFailureFact('queueFull'), {
@@ -96,13 +88,9 @@ export class PiRpcPromptDelivery {
       this.waiting.push(submission)
       await this.deps.send(frame)
       return { state: 'admitted' }
-    } catch (error) {
+    } catch {
       this.remove(submission)
       this.deps.refused?.()
-      if (error instanceof NdjsonLineTooLongError) {
-        // The encoder refused the line before writing a byte: Pi never saw this prompt.
-        return piRejection(agentSessionFailureFact('writeFailed', { neverReachedAgent: true }))
-      }
       return { state: 'unknown', reason: 'Pi prompt write did not settle' }
     }
   }

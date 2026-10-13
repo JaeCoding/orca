@@ -1,6 +1,6 @@
 import {
-  retainedRowReplacement,
-  retainedWithProviderItems
+  mergeRetainedHostLifecycleRows,
+  retainedRowReplacement
 } from './structured-rewind-retained-host-rows'
 import { isDeepStrictEqual } from 'node:util'
 import {
@@ -13,7 +13,6 @@ import type { AgentSessionJournal } from '../agent-session-journal/journal-store
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { AGENT_SESSION_HISTORY_MAX_PAGE_BYTES } from './agent-session-history-page-bounds'
 import { rewindRefusal } from './structured-rewind-refusal'
-import { rewindRestatedSends, withRewindRestatedSends } from './structured-rewind-restated-sends'
 import type { StructuredAgentSessionLogger } from './structured-agent-session-logger'
 import type { JournalOperationReceipt } from '../agent-session-journal/journal-row-writer'
 import type { AgentJournalCursor } from '../../../shared/agent-session-journal-types'
@@ -134,11 +133,13 @@ export async function recoverStructuredRewind(
     if (observedItems.size !== expectedItems.size) {
       throw new Error('agent_session_rewind:proof-mismatch')
     }
-    const retained = retainedWithProviderItems(
+    const retained = mergeRetainedHostLifecycleRows(
       rewind.retained,
-      recovered.items,
-      rewindRestatedSends(journal),
-      now()
+      recovered.items.map(({ identity, body }) => ({
+        itemId: agentJournalItemKey(identity),
+        body,
+        observedAt: now()
+      }))
     )
     if (
       retained.length > 10_000 ||
@@ -152,13 +153,7 @@ export async function recoverStructuredRewind(
   if (rewind.phase !== 'provider-succeeded') {
     return
   }
-  // Re-derived, not stored: the rewind admitted no unsettled send, and a settled one never leaves the set.
-  const replacement = withRewindRestatedSends(
-    rewind.retained.map(retainedRowReplacement),
-    journal,
-    target?.provider === 'codex' ? target : null,
-    { logger: deps.logger, sessionId }
-  )
+  const replacement = rewind.retained.map(retainedRowReplacement)
   if (rewind.contextClearOperationId && rewind.contextClearSequence) {
     if (
       store.getRecord(sessionId)?.providerContextBoundary?.operationId !==

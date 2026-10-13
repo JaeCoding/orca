@@ -30,7 +30,6 @@ import type {
   AgentSessionDispatchOutcome,
   StructuredAgentSessionAdapter
 } from './structured-agent-session-adapter'
-import type { AgentSessionPreparedDispatch } from './structured-agent-session-prepared-dispatch'
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
 import {
   handOverStructuredAgentSessionCommand,
@@ -47,10 +46,10 @@ import { isAgentSessionAttachmentExpiredError } from '../agent-session-attachmen
 import { CommandReceiptExistsError } from '../agent-session-journal/command-receipt-transaction'
 import type { StructuredAgentRegistry } from './structured-agent-registry'
 import {
-  appendStoppedHistory,
-  owedStoppedHistory,
-  prepareStoppedHistory
+  carriedStoppedHistory,
+  injectStoppedHistory
 } from './structured-agent-session-stopped-history-selection'
+import { withStoppedHistory } from '../../../shared/agent-session-stopped-history'
 export { performSetOption } from './structured-agent-session-turns-options'
 export { performPrompt } from './structured-agent-session-turns-prompt'
 export { performCancel } from './structured-agent-session-turns-cancel'
@@ -109,8 +108,7 @@ async function dispatchSafely(
   ctx: AgentSessionHandoverContext,
   clientMessageId: string,
   body: AgentJournalMessageItem,
-  requestedAt: number,
-  prepared: AgentSessionPreparedDispatch | null
+  requestedAt: number
 ): Promise<AgentSessionDispatchOutcome> {
   try {
     return await ctx.adapter.dispatch({
@@ -118,8 +116,7 @@ async function dispatchSafely(
       clientMessageId,
       body,
       fence: ctx.fence,
-      requestedAt,
-      ...(prepared ? { prepared } : {})
+      requestedAt
     })
   } catch (error) {
     return { state: 'unknown', reason: error instanceof Error ? error.message : String(error) }
@@ -202,7 +199,7 @@ export async function performSend(
   }
 }
 
-/** A message's handover also writes the stopped messages owed, logging what came of them. */
+/** A message's handover also delivers the stopped messages owed, logging what came of them. */
 export type AgentSessionHandoverContext = StructuredAgentSessionCommandHandoverContext & {
   logger: StructuredAgentSessionLogger
 }
@@ -231,32 +228,29 @@ export async function handOverSubmission(
     return
   }
   // The message joins the turn running at handover, a steer, or opens its own. A new turn first
-  // writes the stopped messages owed to the agent: into its own log, or carried in this send, named
-  // on this same row before anything is written.
-  const owed = owedStoppedHistory(ctx, submission, body, ctx.journal.liveTurnScope())
-  const delivery = ctx.adapter.stoppedMessageDelivery?.(ctx.sessionId) ?? 'none'
-  if (delivery === 'append') {
-    await appendStoppedHistory(ctx, owed)
+  // delivers the stopped messages owed to the agent: injected into its own log, or carried in this
+  // send and named on this same row before anything is written.
+  if (ctx.adapter.injectsStoppedMessages?.(ctx.sessionId)) {
+    await injectStoppedHistory(ctx, submission, body)
   }
-  const prepared = delivery === 'carry' ? await prepareStoppedHistory(ctx, body, owed) : null
-  // Re-read after that I/O: a turn opened meanwhile makes this a steer, which carries none.
-  const turnScope = ctx.journal.liveTurnScope()
-  const carried = turnScope.kind === 'thread' ? prepared : null
+  // Asked again: an agent that proved it cannot inject gets them carried in this send instead.
+  const carried = ctx.adapter.injectsStoppedMessages?.(ctx.sessionId)
+    ? null
+    : carriedStoppedHistory(ctx, submission, body)
   await ctx.journal.resolveDispatch({
     clientMessageId,
     state: 'pending',
     fence: ctx.fence,
-    turnScope,
-    ...(carried ? { carries: carried.carries } : {})
+    turnScope: ctx.journal.liveTurnScope(),
+    ...(carried ? { carries: carried.covers } : {})
   })
   // The handover row's instant on the host clock; the turn this dispatch opens records it so the
   // live counter never re-anchors at turn-open.
   const outcome = await dispatchSafely(
     ctx,
     clientMessageId,
-    body,
-    structuredAgentSessionHandoverOrigin(ctx.journal, submission),
-    carried
+    carried ? withStoppedHistory(body, carried.messages) : body,
+    structuredAgentSessionHandoverOrigin(ctx.journal, submission)
   )
   // An admission needs no dispatch row: the submission is already pending.
   if (outcome.state === 'admitted') {

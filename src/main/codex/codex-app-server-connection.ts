@@ -206,13 +206,9 @@ export async function openCodexAppServerConnection(
     })
   }
 
-  let codexVersion: string | null = null
   const connection: CodexAppServerConnection = {
     get pid() {
       return child.pid
-    },
-    get codexVersion() {
-      return codexVersion
     },
     get closed() {
       return closing || managed.rootVerdict === 'exited' || terminalError !== null
@@ -239,7 +235,7 @@ export async function openCodexAppServerConnection(
       await handlers.onSpawned?.(child.pid)
     }
     handshaking = true
-    codexVersion = await initializeCodexAppServerConnection(connection)
+    await initializeCodexAppServerConnection(connection)
   } catch (error) {
     if ((await close()) !== true) {
       throw new CodexAppServerHandshakeExitUnprovenError(connection, error)

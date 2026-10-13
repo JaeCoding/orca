@@ -1,4 +1,3 @@
-import { claimClaudeStoppedMessageAppendFrame } from './claude-stopped-message-append'
 import type {
   AgentSessionAcquisition,
   StructuredAgentSessionAcquireInput
@@ -6,10 +5,7 @@ import type {
 import { openClaudeStreamJsonConnection } from './claude-stream-json-connection'
 import { buildClaudePermissionCallbacks } from './claude-structured-inbound-control'
 import { resolveClaudeReplayTurn } from './claude-replay-turn-resolution'
-import {
-  claudeSessionStateEndsTurn,
-  readClaudeSessionState
-} from './claude-session-state-turn-over'
+import { claudeSessionStateEndsTurn } from './claude-session-state-turn-over'
 import { settleClaudeTurnEndWaiters } from './claude-request-end-wait'
 import {
   createClaudeInitProof,
@@ -108,7 +104,6 @@ export async function acquireClaudeSession({
     if (liveSession) {
       liveSession.leafUuid = observedLeafUuid
       observeClaudeFastModeFacts(liveSession, message)
-      liveSession.providerState = readClaudeSessionState(message) ?? liveSession.providerState
       // Recording a turn end is an owner action; a result that trails the child's exit has no owner.
       if (message.type === 'result' && sessions.get(sessionId) === liveSession) {
         persistClaudeTurnResumePoint(sessionId, liveSession, deps)
@@ -118,10 +113,6 @@ export async function acquireClaudeSession({
         settleClaudeTurnEndWaiters(liveSession)
         deps.onSessionIdle?.({ sessionId })
       }
-    }
-    // An append of stopped messages runs no turn, so no turn may read its frames.
-    if (liveSession && claimClaudeStoppedMessageAppendFrame(liveSession, message)) {
-      return
     }
     // Settled after the turn this echo opens is emitted: a send read as answered before its turn
     // lands reads as nothing running, and Stop and Working blink off in between.

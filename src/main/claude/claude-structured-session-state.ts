@@ -1,4 +1,3 @@
-import type { ClaudeStoppedMessageAppend } from './claude-stopped-message-append'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import type { AgentJournalDispatchRejection } from '../../shared/agent-session-failure-words'
 import type { SubmissionRejectionFact } from '../../shared/agent-session-failure'
@@ -209,11 +208,6 @@ export type ClaudeSession = {
   unbindReadingControl?: () => void
   /** Published at spawn with its saved options; init facts land when startup does. */
   startup: ClaudeSessionStartup
-  /** Stopped messages being written into Claude's log, whose frames no turn reads. */
-  stoppedMessageAppend?: ClaudeStoppedMessageAppend | null
-  /** The CLI's last `session_state_changed` state; unset until its first command, as it reports
-   *  none at startup (measured). */
-  providerState?: string
 }
 
 export function mintClaudeAcquisitionGeneration(deps: ClaudeStructuredSessionAdapterDeps): string {

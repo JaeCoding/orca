@@ -9,7 +9,7 @@ import type {
 } from '../../../shared/agent-session-journal-types'
 import type { JournalHostDatabase } from './journal-host-database'
 import { JournalContextController } from './journal-context-controller'
-import { JournalStoppedHistory } from './journal-stopped-message-appends'
+import { JournalStoppedHistory } from './journal-stopped-message-injections'
 import { JournalEpochController } from './journal-epoch-controller'
 import { JournalItemAppender } from './journal-item-appender'
 import { JournalLifecycleBatchAppender } from './journal-lifecycle-batch-appender'
@@ -130,8 +130,7 @@ export function createJournalStoreCollaborators(host: JournalStoreHost): Journal
     context: new JournalContextController({
       state: host.state,
       writer: rowWriter,
-      cards: queuedMessages,
-      identity: host.identity
+      cards: queuedMessages
     }),
     stoppedHistory: new JournalStoppedHistory({ state: host.state, writer: rowWriter }),
     // Behind the stored fact: settles drafts whose consumed submission the loaded journal shows
