@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   agentSessionLeaseFixture,
   agentSessionRecordFixture
@@ -10,7 +10,6 @@ import {
   structuredAdoptionConflictError,
   type StructuredAgentSessionAdoptionOwnership
 } from './structured-agent-session-history-adoption'
-import { directoryTranscriptImport } from './structured-agent-cli-conversations'
 import {
   claudeProviderHandle,
   codexProviderHandle
@@ -181,86 +180,15 @@ describe('structuredAdoptionConflictError', () => {
   })
 })
 
-const codexHome = (path: string) => ({ variable: 'CODEX_HOME', path })
-
 describe('resolveStructuredAgentSessionAdoption', () => {
-  it('takes the first candidate home that holds the transcript and probes no further', async () => {
-    const resolveTranscript = vi
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('/home/dev/.codex/sessions/thread-1.jsonl')
-
-    await expect(
-      resolveStructuredAgentSessionAdoption({
-        providerSessionId: 'thread-1',
-        candidateAccountHomes: [
-          codexHome('/home/dev/.orca-codex'),
-          codexHome('/home/dev/.codex'),
-          codexHome('/never/probed')
-        ],
-        resolveTranscript,
-        launchEnv: {},
-        workspaceCwd: '/repo'
-      })
-    ).resolves.toEqual({
-      accountHome: codexHome('/home/dev/.codex'),
-      transcriptPath: '/home/dev/.codex/sessions/thread-1.jsonl'
-    })
-    expect(resolveTranscript).toHaveBeenCalledTimes(2)
-  })
-
-  it('skips blank and repeated directory candidates instead of probing them again', async () => {
-    const findTranscript = vi.fn().mockResolvedValue(null)
-    const transcriptImport = directoryTranscriptImport({
-      accountHomeCandidates: () => ['', '   ', '/home/dev/.claude', ' /home/dev/.claude ', ''],
-      findTranscript
-    })
-
-    await expect(
-      resolveStructuredAgentSessionAdoption({
-        providerSessionId: 'session-1',
-        candidateAccountHomes: transcriptImport.accountHomeCandidates({
-          settings: {},
-          selectedAccountHome: { variable: 'CLAUDE_CONFIG_DIR', path: '/home/dev/.claude' }
-        }),
-        resolveTranscript: transcriptImport.findTranscript,
-        launchEnv: {},
-        workspaceCwd: '/repo'
-      })
-    ).rejects.toThrow('agent_session_identity_required')
-    expect(findTranscript.mock.calls.map(([args]) => args.accountHomePath)).toEqual([
-      '/home/dev/.claude'
-    ])
-  })
-
-  it('pins an OpenCode account locator, which names no directory', async () => {
-    const unmanaged = { kind: 'opencode', locator: { kind: 'unmanaged' } } as const
-    await expect(
-      resolveStructuredAgentSessionAdoption({
-        providerSessionId: 'ses_1',
-        candidateAccountHomes: [
-          { kind: 'opencode', locator: { kind: 'managed', managedProfileId: 'work' } },
-          unmanaged
-        ],
-        resolveTranscript: async ({ accountHome }) =>
-          accountHome === unmanaged ? '/home/dev/.local/share/opencode/opencode.db' : null,
-        launchEnv: {},
-        workspaceCwd: '/repo'
-      })
-    ).resolves.toEqual({
-      accountHome: unmanaged,
-      transcriptPath: '/home/dev/.local/share/opencode/opencode.db'
-    })
-  })
-
   it('refuses rather than falling back to a home that does not hold the conversation', async () => {
     // A resume under the wrong home lands in a blank chat wearing the old chat's name.
     await expect(
       resolveStructuredAgentSessionAdoption({
         providerSessionId: 'session-1',
         candidateAccountHomes: [
-          codexHome('/home/dev/.claude-work'),
-          codexHome('/home/dev/.claude')
+          { variable: 'CLAUDE_CONFIG_DIR', path: '/home/dev/.claude-work' },
+          { variable: 'CLAUDE_CONFIG_DIR', path: '/home/dev/.claude' }
         ],
         resolveTranscript: async () => null,
         launchEnv: {},

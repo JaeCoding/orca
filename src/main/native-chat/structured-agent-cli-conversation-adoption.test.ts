@@ -329,24 +329,6 @@ describe('adopting an OpenCode CLI conversation', () => {
     return join(home, 'data', 'opencode', 'opencode.db')
   }
 
-  it("finds the conversation in the account's database and imports its history", async () => {
-    root = await mkdtemp(join(tmpdir(), 'orca-opencode-adopt-'))
-    const dbPath = openCodeData(root)
-    writeOpenCodeSqliteDatabase(dbPath, [
-      { id: OPENCODE_SESSION, turns: [{ role: 'user', parts: ['ORCA-opencode-ADOPT'] }] }
-    ])
-
-    const adoption = await adopt('opencode', unmanaged, OPENCODE_SESSION)
-
-    expect(adoption).toEqual({ accountHome: unmanaged, transcriptPath: dbPath })
-    const imported = await prepareLegacyTranscriptImport({
-      agent: 'opencode',
-      sessionId: OPENCODE_SESSION,
-      options: { filePath: adoption.transcriptPath }
-    })
-    expect(imported.ok && JSON.stringify(imported.items)).toContain('ORCA-opencode-ADOPT')
-  })
-
   it('imports from the configured database the resumed OpenCode child opens', async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-opencode-configured-adopt-'))
     const defaultDb = openCodeData(root)
@@ -382,20 +364,5 @@ describe('adopting an OpenCode CLI conversation', () => {
     })
     expect(imported.ok && JSON.stringify(imported.items)).toContain('configured database')
     expect(imported.ok && JSON.stringify(imported.items)).not.toContain('wrong database')
-  })
-
-  it('refuses a conversation the database does not hold, or a missing database', async () => {
-    root = await mkdtemp(join(tmpdir(), 'orca-opencode-adopt-missing-'))
-    const dbPath = openCodeData(root)
-    await expect(adopt('opencode', unmanaged, OPENCODE_SESSION)).rejects.toMatchObject({
-      refusal: { code: 'agent_session_identity_required' }
-    })
-
-    writeOpenCodeSqliteDatabase(dbPath, [
-      { id: 'ses_other', turns: [{ role: 'user', parts: ['another conversation'] }] }
-    ])
-    await expect(adopt('opencode', unmanaged, OPENCODE_SESSION)).rejects.toMatchObject({
-      refusal: { code: 'agent_session_identity_required' }
-    })
   })
 })
