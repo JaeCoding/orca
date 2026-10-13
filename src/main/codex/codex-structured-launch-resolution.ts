@@ -15,7 +15,8 @@ import { codexStructuredPermissionPolicy } from './codex-structured-permission-p
 import { resolvePinnedCodexRolloutProof } from './codex-pinned-rollout-proof'
 import { codexStructuredLaunchArgs } from './codex-structured-launch-args'
 import {
-  NATIVE_CHAT_VISUALS_DIR_ENV,
+  LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV,
+  NATIVE_CHAT_SCRATCH_DIR_ENV,
   withNativeChatVisualsEnv
 } from '../native-chat/native-chat-visuals-delivery'
 
@@ -109,7 +110,10 @@ export function codexStructuredLaunchPart(
         visuals
       ),
       // Without visuals, a folder Orca itself inherited (started from a chat) names another chat's.
-      inheritedEnvToDelete: visuals ? [] : [NATIVE_CHAT_VISUALS_DIR_ENV]
+      inheritedEnvToDelete: [
+        ...(visuals ? [] : [NATIVE_CHAT_SCRATCH_DIR_ENV]),
+        LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV
+      ]
     }
   }
 }

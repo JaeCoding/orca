@@ -30,7 +30,8 @@ import {
 import type { StructuredAgentLaunchPartResolver } from '../runtime/structured-agent-launch-composition'
 import { STRUCTURED_CHILD_ENV_TO_DELETE } from '../runtime/structured-session-child-env'
 import {
-  NATIVE_CHAT_VISUALS_DIR_ENV,
+  LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV,
+  NATIVE_CHAT_SCRATCH_DIR_ENV,
   withNativeChatVisualsEnv
 } from '../native-chat/native-chat-visuals-delivery'
 import type { AcpLaunchSpec } from './acp-launch-specs'
@@ -233,7 +234,8 @@ export function acpStructuredLaunchPart(
         ...STRUCTURED_CHILD_ENV_TO_DELETE,
         ...envToDelete,
         // Without visuals, a folder Orca itself inherited (started from a chat) names another chat's.
-        ...(skill ? [] : [NATIVE_CHAT_VISUALS_DIR_ENV])
+        ...(skill ? [] : [NATIVE_CHAT_SCRATCH_DIR_ENV]),
+        LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV
       ]
     }
   }
