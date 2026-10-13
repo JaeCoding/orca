@@ -27,10 +27,12 @@ function userMessage(text: string): Record<string, unknown> {
   return { type: 'message', role: 'user', content: [{ type: 'input_text', text }] }
 }
 
+const CODEX_GONE = 'Codex ended before the injection'
+
 /** Why Codex cannot take an injection now, or null: gone, a later child, or running a turn. */
-function notIdle(session: CodexInjectionHost | undefined, fence: number): string | null {
-  if (!session || session.ended || session.connection.closed || session.fence !== fence) {
-    return 'Codex ended before the injection'
+function notIdle(session: CodexInjectionHost, fence: number): string | null {
+  if (session.ended || session.connection.closed || session.fence !== fence) {
+    return CODEX_GONE
   }
   return session.activeTurnIds?.size || session.dispatchPending ? 'Codex is running a turn' : null
 }
@@ -39,9 +41,12 @@ export async function injectCodexStoppedMessages(
   session: CodexInjectionHost | undefined,
   input: { fence: number; messages: readonly OwedStoppedMessage[] }
 ): Promise<AgentSessionStoppedMessageInjectionOutcome> {
+  if (!session) {
+    return { outcome: 'refused', reason: CODEX_GONE }
+  }
   const busy = notIdle(session, input.fence)
-  if (!session || busy) {
-    return { outcome: 'refused', reason: busy ?? 'Codex ended before the injection' }
+  if (busy) {
+    return { outcome: 'refused', reason: busy }
   }
   const items = input.messages.flatMap(({ words }) => [
     userMessage(words),

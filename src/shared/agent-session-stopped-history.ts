@@ -62,13 +62,11 @@ function withdrawnUnwritten(submission: AgentJournalSubmission): boolean {
   )
 }
 
-// Raised by Orca before any byte reached the agent; any other kind may follow a provider write.
+// Raised by Orca before any byte of a words-only send reached the agent; any other kind may follow
+// a provider write.
 const REFUSED_BEFORE_WRITE: ReadonlySet<SubmissionRejectionKind> = new Set([
   'queueFull',
-  'writeFailed',
-  'attachmentInvalid',
-  'attachmentUnreadable',
-  'emptyMessage'
+  'writeFailed'
 ])
 
 /** Refused before anything reached the agent: what it carried is owed again. */
@@ -128,10 +126,14 @@ function messageWords(body: AgentJournalMessageItem): string {
     .join('\n')
 }
 
-/** One delivery: the newest owed message, and older ones while they add no more than one send can
- *  hold (`MAX_PROMPT_BYTES`), in the order sent; it covers every owed message, those left out
- *  included, so none arrives after a newer one. Beside a words-only send this stays far under every
- *  agent's one-line limit. */
+// Per message, the larger transport's framing beyond its words: Codex's two item wrappers and its
+// own interrupted record.
+export const STOPPED_MESSAGE_FRAMING_BYTES = 512
+
+/** One delivery: the newest owed message, and older ones while the whole stays within what one send
+ *  can hold (`MAX_PROMPT_BYTES`), in the order sent. It covers every owed message, those left out
+ *  included, so none arrives after a newer one. So history adds at most about one more send, and
+ *  beside a words-only send stays far under every agent's one-line limit. */
 export type StoppedHistoryDelivery = {
   messages: OwedStoppedMessage[]
   covers: string[]
@@ -145,12 +147,13 @@ export function selectStoppedHistory(
     return null
   }
   const encoder = new TextEncoder()
+  const cost = (entry: OwedStoppedMessage): number =>
+    encoder.encode(JSON.stringify(entry.words)).length + STOPPED_MESSAGE_FRAMING_BYTES
   const older: OwedStoppedMessage[] = []
-  let bytes = 0
+  let bytes = cost(newest)
   for (const entry of owed.slice(0, -1).toReversed()) {
-    const cost = encoder.encode(JSON.stringify(carriedText([entry]))).length
-    if (bytes + cost <= MAX_PROMPT_BYTES) {
-      bytes += cost
+    if (bytes + cost(entry) <= MAX_PROMPT_BYTES) {
+      bytes += cost(entry)
       older.unshift(entry)
     }
   }

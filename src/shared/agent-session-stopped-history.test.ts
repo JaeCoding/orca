@@ -6,11 +6,13 @@ import type {
   AgentJournalMessageItem,
   AgentJournalSubmission
 } from './agent-session-journal-types'
+import { MAX_PROMPT_BYTES } from './rpc-contract/structured-agent-session-message-params'
 import {
   agentSessionSendCarriesStoppedHistory,
   agentSessionSendDeliversStoppedHistory,
   agentSessionStoppedHistoryOwed,
   selectStoppedHistory,
+  STOPPED_MESSAGE_FRAMING_BYTES,
   withStoppedHistory,
   type StoppedHistoryJournal
 } from './agent-session-stopped-history'
@@ -186,13 +188,7 @@ describe('which stopped messages the agent is owed', () => {
   })
 
   it('a carrier refused before any write leaves what it carried owed again', () => {
-    for (const kind of [
-      'queueFull',
-      'writeFailed',
-      'attachmentInvalid',
-      'attachmentUnreadable',
-      'emptyMessage'
-    ] as const) {
+    for (const kind of ['queueFull', 'writeFailed'] as const) {
       expect(
         owed([sent('a', 2, STOPPED), sent('c', 9, rejected(kind))], {
           carried: { c: ['a'] }
@@ -300,9 +296,9 @@ describe('what one delivery holds', () => {
     expect(selectStoppedHistory([])).toBeNull()
   })
 
-  it('keeps the newest, then older ones while they fit one send, and covers those left out', () => {
-    // Quotes double in JSON, so each big one costs about 600 KiB against one send's 256 KiB.
-    const big = '"'.repeat(300 * 1024)
+  it('keeps the newest, then older ones while the whole fits one send, and covers those left out', () => {
+    // Quotes double in JSON: each big one is admissible alone (about 200 KiB of a send's 256 KiB).
+    const big = '"'.repeat(100 * 1024)
     const owed = [
       stopped('a', 'first'),
       stopped('b', big),
@@ -313,6 +309,18 @@ describe('what one delivery holds', () => {
       messages: [owed[0], owed[2], owed[3]],
       covers: ['a', 'b', 'c', 'd']
     })
+  })
+
+  it('counts each message with the framing of either transport', () => {
+    // 3,000 one-letter messages: the framing, not the words, decides how many fit.
+    const owed = Array.from({ length: 3_000 }, (_, index) => stopped(`m${index}`, 'x'))
+    const delivery = selectStoppedHistory(owed)!
+    const fits = Math.floor(
+      MAX_PROMPT_BYTES / (JSON.stringify('x').length + STOPPED_MESSAGE_FRAMING_BYTES)
+    )
+    expect(delivery.messages).toHaveLength(fits)
+    expect(delivery.messages.at(-1)).toBe(owed.at(-1))
+    expect(delivery.covers).toHaveLength(3_000)
   })
 })
 

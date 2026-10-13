@@ -2,6 +2,7 @@
 // Codex's own user-role `<turn_aborted>` record, only while no turn runs, at most once.
 
 import { describe, expect, it, vi } from 'vitest'
+import { STOPPED_MESSAGE_FRAMING_BYTES } from '../../shared/agent-session-stopped-history'
 import { CodexAppServerRequestError } from './codex-app-server-request-error'
 import { CodexAppServerUnsupportedError } from './codex-app-server-session'
 import {
@@ -59,6 +60,15 @@ describe('injecting stopped messages into Codex', () => {
     ])
     expect(CODEX_TURN_ABORTED_MARKER).toBe(
       '<turn_aborted>\nThe user interrupted the previous turn on purpose. Any running unified exec processes may still be running in the background. If any tools/commands were aborted, they may have partially executed.\n</turn_aborted>'
+    )
+  })
+
+  it('adds no more per message than the framing stopped history counts for it', async () => {
+    const { request, host } = session()
+    await inject(host, [{ clientMessageId: 'a', words: 'x' }])
+    const items = request.mock.calls[0]![1]!.items
+    expect(JSON.stringify(items).length - JSON.stringify('x').length).toBeLessThanOrEqual(
+      STOPPED_MESSAGE_FRAMING_BYTES
     )
   })
 
