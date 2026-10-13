@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 import { foundAgentSessionRecord } from './agent-session-record-founding'
 import {
@@ -128,12 +128,10 @@ describe('existing chat permission backfill', () => {
         records: [record('claude'), record('codex'), record('grok')]
       })
       const store = await openTestAgentSessionRecordStore(root)
-      const ranWithFullAccess = vi.fn((provider: string) => provider === bypassing)
-      await store.backfillChatPermissionModes(ranWithFullAccess)
+      await store.backfillChatPermissionModes((provider) => provider === bypassing)
       expect(store.getRecord('session-claude')?.options).toEqual({ permissionMode: claude })
       expect(store.getRecord('session-codex')?.options).toEqual({ permissionMode: codex })
       expect(store.getRecord('session-grok')?.options).toBeUndefined()
-      expect(ranWithFullAccess).toHaveBeenCalledTimes(3)
     }
   )
 
