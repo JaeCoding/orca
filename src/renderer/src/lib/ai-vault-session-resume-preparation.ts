@@ -1,4 +1,8 @@
 import type { AiVaultSession } from '../../../shared/ai-vault-types'
+import type {
+  AiVaultPrepareSessionResumeArgs,
+  AiVaultPrepareSessionResumeResult
+} from '../../../shared/ai-vault-resume-preparation'
 import {
   isLegacySharedCodexHome,
   isPerAccountManagedCodexHome
@@ -15,6 +19,12 @@ export function prepareAiVaultSessionForResume(session: AiVaultSession): Promise
     : prepareAiVaultSessionHome(session, false)
 }
 
+export function prepareAiVaultSessionResumeRequest(
+  args: AiVaultPrepareSessionResumeArgs
+): Promise<AiVaultPrepareSessionResumeResult> {
+  return window.api.aiVault.prepareSessionResume(args)
+}
+
 /** Picks the Codex home a fork of `session` runs under, the same way a resume picks it. */
 export function prepareAiVaultSessionForFork(session: AiVaultSession): Promise<AiVaultSession> {
   return prepareAiVaultSessionHome(session, true)
@@ -24,10 +34,10 @@ async function prepareAiVaultSessionHome(
   session: AiVaultSession,
   fork: boolean
 ): Promise<AiVaultSession> {
-  if (!aiVaultSessionNeedsResumePreparation(session)) {
+  if (fork && !aiVaultSessionNeedsResumePreparation(session)) {
     return session
   }
-  const result = await window.api.aiVault.prepareSessionResume({
+  const result = await prepareAiVaultSessionResumeRequest({
     agent: session.agent,
     sessionId: session.sessionId,
     filePath: session.filePath,

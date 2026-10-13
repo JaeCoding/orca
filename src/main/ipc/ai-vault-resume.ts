@@ -5,6 +5,7 @@ import type {
   AiVaultSessionResumePreparation
 } from '../../shared/ai-vault-resume-preparation'
 import { isUnresolvedOwnerHostId, parseExecutionHostId } from '../../shared/execution-host'
+import { isWslUncPath } from '../../shared/wsl-paths'
 import { assertLegacyAiVaultResumeAllowed } from '../ai-vault/structured-session-ownership'
 
 export type AiVaultResumeHandlerOptions = {
@@ -26,8 +27,6 @@ export async function prepareAiVaultSessionResume(
   args: AiVaultPrepareSessionResumeArgs,
   options: AiVaultResumeHandlerOptions
 ): Promise<AiVaultPrepareSessionResumeResult> {
-  await options.ensureStructuredSessionOwnership?.()
-  assertLegacyAiVaultResumeAllowed(args)
   const executionHost = parseExecutionHostId(args.executionHostId)
   if (executionHost?.kind === 'runtime') {
     if (!options.prepareRuntimeSessionResume || isUnresolvedOwnerHostId(executionHost.id)) {
@@ -38,6 +37,10 @@ export async function prepareAiVaultSessionResume(
   // Why: the desktop process must never materialize transcript paths owned by an SSH host.
   if (executionHost?.kind === 'ssh') {
     return { useRealCodexHome: false }
+  }
+  if (!isWslUncPath(args.filePath)) {
+    await options.ensureStructuredSessionOwnership?.()
+    assertLegacyAiVaultResumeAllowed(args)
   }
   return options.prepareSessionResume?.(args) ?? { useRealCodexHome: false }
 }

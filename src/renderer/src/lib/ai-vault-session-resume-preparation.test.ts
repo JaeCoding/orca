@@ -38,13 +38,15 @@ describe('prepareAiVaultSessionForResume', () => {
     ).rejects.toThrow('Retry resume.')
   })
 
-  it('preserves a custom home without materialization', async () => {
-    const prepareSessionResume = vi.fn()
+  it('checks ownership while preserving a custom home', async () => {
+    const prepareSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: false })
     stubPreparation(prepareSessionResume)
     const current = session({ codexHome: '/custom/codex' })
 
     await expect(prepareAiVaultSessionForResume(current)).resolves.toBe(current)
-    expect(prepareSessionResume).not.toHaveBeenCalled()
+    expect(prepareSessionResume).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: 'codex', sessionId: current.sessionId })
+    )
   })
 
   it('does not prepare a legacy CLI resume for a native structured session', async () => {
@@ -86,8 +88,8 @@ describe('prepareAiVaultSessionForResume', () => {
     await expect(prepareAiVaultSessionForResume(current)).resolves.toBe(current)
   })
 
-  it('does not ask a remote host to repin a per-account session', async () => {
-    const prepareSessionResume = vi.fn()
+  it('asks the host to check a remote session while preserving its home', async () => {
+    const prepareSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: false })
     stubPreparation(prepareSessionResume)
     const current = session({
       codexHome: '/home/user/.orca/codex-accounts/account-1/home',
@@ -95,7 +97,42 @@ describe('prepareAiVaultSessionForResume', () => {
     })
 
     await expect(prepareAiVaultSessionForResume(current)).resolves.toBe(current)
-    expect(prepareSessionResume).not.toHaveBeenCalled()
+    expect(prepareSessionResume).toHaveBeenCalledWith(
+      expect.objectContaining({ executionHostId: 'ssh:server-1' })
+    )
+  })
+
+  it.each(['claude', 'omp', 'codex'] as const)(
+    'checks a stale %s row before any CLI launch can be planned',
+    async (agent) => {
+      const prepareSessionResume = vi.fn().mockRejectedValue(new Error('agent_session_conflict'))
+      stubPreparation(prepareSessionResume)
+      const stale = session({ agent, codexHome: null })
+
+      await expect(prepareAiVaultSessionForResume(stale)).rejects.toThrow('agent_session_conflict')
+      expect(prepareSessionResume).toHaveBeenCalledWith({
+        agent,
+        sessionId: stale.sessionId,
+        filePath: stale.filePath,
+        codexHome: null,
+        executionHostId: 'local'
+      })
+    }
+  )
+
+  it('keeps a paired non-Codex row when an older host returns only the original neutral result', async () => {
+    const prepareSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: false })
+    stubPreparation(prepareSessionResume)
+    const remote = session({
+      agent: 'claude',
+      executionHostId: 'runtime:paired',
+      codexHome: null
+    })
+
+    await expect(prepareAiVaultSessionForResume(remote)).resolves.toBe(remote)
+    expect(prepareSessionResume).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: 'claude', executionHostId: 'runtime:paired' })
+    )
   })
 })
 

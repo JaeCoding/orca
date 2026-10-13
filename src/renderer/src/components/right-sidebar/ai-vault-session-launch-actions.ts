@@ -25,6 +25,7 @@ import type { AgentSessionContinuationRequest } from '@/lib/agent-session-contin
 import { activateAiVaultStructuredSession } from '@/lib/activate-ai-vault-structured-session'
 import { isAgentSessionHandleProvider } from '../../../../shared/agent-session-provider-handle'
 import { newAgentLaunchRequestId } from '@/lib/agent-launch-request-id'
+import { describeAiVaultResumeFailure } from '@/lib/ai-vault-resume-refusal'
 import {
   activateAiVaultResumeWorkspace,
   resumeAiVaultSessionInNewChat
@@ -86,7 +87,7 @@ export function useAiVaultSessionLaunchActions({
           )
         )
       } catch (error) {
-        notifyAiVaultSessionPreparationFailure(error)
+        notifyAiVaultSessionPreparationFailure(error, session.agent)
       }
     },
     [buildResumeCommand]
@@ -150,7 +151,9 @@ export function useAiVaultSessionLaunchActions({
           }
           showQueuedToast()
         })
-        .catch((error: unknown) => notifyAiVaultSessionPreparationFailure(error, describeFailure))
+        .catch((error: unknown) =>
+          notifyAiVaultSessionPreparationFailure(error, session.agent, describeFailure)
+        )
     },
     [activeWorktree?.id, activeWorktreeId, targetState]
   )
@@ -277,16 +280,11 @@ export function useAiVaultSessionLaunchActions({
 
 function notifyAiVaultSessionPreparationFailure(
   error: unknown,
+  agent: AiVaultAgent,
   describeFailure: (message: string) => string = (message) => message
 ): void {
-  toast.error(
-    error instanceof Error
-      ? describeFailure(error.message)
-      : translate(
-          'auto.components.right.sidebar.AiVaultPanel.prepareSessionResumeFailed',
-          'Could not prepare this session for resume.'
-        )
-  )
+  const described = error instanceof Error ? new Error(describeFailure(error.message)) : error
+  toast.error(describeAiVaultResumeFailure(described, agent))
 }
 
 function resolveAiVaultSessionLaunchTargetOrNotify(

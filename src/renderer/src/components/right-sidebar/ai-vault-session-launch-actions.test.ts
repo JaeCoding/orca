@@ -154,3 +154,28 @@ describe('Resume in New CLI launch', () => {
     expect(mocks.launchAiVaultSessionInNewTab).not.toHaveBeenCalled()
   })
 })
+
+describe('stale ordinary Resume', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it.each(['claude', 'omp', 'codex'] as const)(
+    'refuses a stale %s row before creating a terminal',
+    async (agent) => {
+      const stale = { ...owned, agent, structuredSession: undefined }
+      mocks.prepareAiVaultSessionForResume.mockRejectedValue(
+        new Error(
+          "Error invoking remote method 'aiVault:prepareSessionResume': Error: agent_session_conflict"
+        )
+      )
+
+      renderActions().handleResume(stale, 'worktree-1')
+
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(1))
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        expect.stringContaining('Open that chat, or choose Resume in New CLI')
+      )
+      expect(mocks.launchAiVaultSessionInNewTab).not.toHaveBeenCalled()
+      expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    }
+  )
+})

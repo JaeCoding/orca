@@ -1174,6 +1174,10 @@
             }
           }
         }
+      },
+      "aiVaultResumeRefusal": {
+        "openInChat": "{{value0}} is already open in a native chat. Open that chat, or choose Resume in New CLI to make a copy.",
+        "ownershipUnknown": "Orca cannot safely resume this {{value0}} session in a terminal. Open its native chat and try again."
       }
     },
     "hooks": {
@@ -3611,7 +3615,8 @@
             "sessionQueued": "Session queued",
             "openSupportedWorkspace": "Open a workspace before resuming a session.",
             "sessionHostMismatchUnsupported": "This session belongs to a different host. Drop it onto a workspace on the same host.",
-            "localSessionSshWorkspaceUnsupported": "This session's history is stored on this machine, so it can't resume in an SSH workspace. Drop it onto a local workspace instead."
+            "localSessionSshWorkspaceUnsupported": "This session's history is stored on this machine, so it can't resume in an SSH workspace. Drop it onto a local workspace instead.",
+            "oldPayload": "This session was dragged from an older Orca window. Resume it from Session History instead."
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "New split"
