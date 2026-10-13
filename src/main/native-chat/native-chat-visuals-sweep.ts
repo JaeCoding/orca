@@ -36,7 +36,6 @@ export type NativeChatVisualsSweepDeps = {
   runWhileExecutionIdle: <T>(sessionId: string, task: () => Promise<T>) => Promise<T | null>
   logger: StructuredAgentSessionLogger
   remove?: (path: string) => Promise<void>
-  now?: () => number
 }
 
 export type NativeChatVisualsSweepResult = { removed: number; failed: number }
@@ -48,16 +47,6 @@ const LEGACY_ROOT_NAME = 'native-chat-visuals'
 // Bounds one run's disk work; whatever is left goes in a later run.
 const MAX_REMOVALS_PER_RUN = 200
 const YIELD_EVERY = 32
-
-type RemovalReason = 'no-record' | 'expired' | 'unused' | 'legacy-root'
-
-type SweepRun = {
-  deps: NativeChatVisualsSweepDeps
-  root: string
-  cutoff: number
-  remove: (path: string) => Promise<void>
-  result: NativeChatVisualsSweepResult
-}
 
 async function listFolders(root: string): Promise<Dirent[]> {
   try {
@@ -80,17 +69,12 @@ export async function sweepNativeChatVisualsFolders(
 ): Promise<NativeChatVisualsSweepResult> {
   const result = { removed: 0, failed: 0 }
   const root = nativeChatScratchRootFor(deps.stateDirectory)
-  const run: SweepRun = {
-    deps,
-    root,
-    cutoff: (deps.now?.() ?? Date.now()) - NATIVE_CHAT_SCRATCH_RETENTION_MS,
-    remove: deps.remove ?? ((path: string) => rm(path, { recursive: true, force: true })),
-    result
-  }
   await rm(join(deps.stateDirectory, LEGACY_ROOT_NAME), { recursive: true, force: true }).catch(
-    (error: unknown) => {
-      reportFailure(run, 'legacy-root', undefined, error)
-    }
+    (error: unknown) =>
+      deps.logger.warn('the pre-rename chat visuals root could not be removed', {
+        scope: 'nativeChatVisuals.sweep',
+        error
+      })
   )
   // Listed before the records are read: a folder is created only after its chat's record, so
   // every folder seen here already has its record in the snapshot below.
@@ -102,6 +86,8 @@ export async function sweepNativeChatVisualsFolders(
   const sessionByFolder = new Map(
     held.map((sessionId) => [nativeChatScratchFolderName(sessionId), sessionId])
   )
+  const remove = deps.remove ?? ((path: string) => rm(path, { recursive: true, force: true }))
+  const cutoff = Date.now() - NATIVE_CHAT_SCRATCH_RETENTION_MS
   let visited = 0
   for (const entry of entries) {
     if (isStopped() || result.removed + result.failed >= MAX_REMOVALS_PER_RUN) {
@@ -110,52 +96,54 @@ export async function sweepNativeChatVisualsFolders(
     if (++visited % YIELD_EVERY === 0) {
       await yieldToEventLoop()
     }
+    const expired = entry.name.endsWith(EXPIRED_SUFFIX)
+    const folderName = expired ? entry.name.slice(0, -EXPIRED_SUFFIX.length) : entry.name
     // A Dirent describes the entry itself, so a symlink is never followed or removed here.
-    if (!entry.isDirectory()) {
+    if (!entry.isDirectory() || !isNativeChatScratchFolderName(folderName)) {
       continue
     }
-    if (
-      entry.name.endsWith(EXPIRED_SUFFIX) &&
-      isNativeChatScratchFolderName(entry.name.slice(0, -EXPIRED_SUFFIX.length))
-    ) {
-      await removeFolder(run, entry.name, 'expired')
-      continue
+    const sessionId = expired ? undefined : sessionByFolder.get(entry.name)
+    const reason = expired ? 'expired' : sessionId === undefined ? 'no-record' : 'unused'
+    try {
+      if (
+        sessionId !== undefined &&
+        !(await parkUnusedFolder(deps, root, folderName, sessionId, cutoff))
+      ) {
+        continue
+      }
+      await remove(join(root, sessionId === undefined ? entry.name : folderName + EXPIRED_SUFFIX))
+      result.removed += 1
+    } catch (error) {
+      result.failed += 1
+      deps.logger.warn('native-chat scratch folder could not be removed', {
+        scope: 'nativeChatVisuals.sweep',
+        reason,
+        ...(sessionId ? { sessionId } : {}),
+        error
+      })
     }
-    if (!isNativeChatScratchFolderName(entry.name)) {
-      continue
-    }
-    const sessionId = sessionByFolder.get(entry.name)
-    await (sessionId === undefined
-      ? removeFolder(run, entry.name, 'no-record')
-      : expireUnusedFolder(run, entry.name, sessionId))
   }
   return result
 }
 
-async function removeFolder(
-  run: SweepRun,
+/** Renames a chat's folder to `<name>.expired` under the chat's lane and then its folder lock;
+ *  false when the chat was used since `cutoff`, holds live work, or a save landed after the scan. */
+async function parkUnusedFolder(
+  deps: NativeChatVisualsSweepDeps,
+  root: string,
   name: string,
-  reason: RemovalReason,
-  sessionId?: string
-): Promise<void> {
-  try {
-    await run.remove(join(run.root, name))
-    run.result.removed += 1
-  } catch (error) {
-    reportFailure(run, reason, sessionId, error)
-  }
-}
-
-async function expireUnusedFolder(run: SweepRun, name: string, sessionId: string): Promise<void> {
-  const folder = join(run.root, name)
-  const usedSince = (): boolean => (run.deps.lastJournalActivityAt(sessionId) ?? 0) >= run.cutoff
+  sessionId: string,
+  cutoff: number
+): Promise<boolean> {
+  const folder = join(root, name)
+  const usedSince = (): boolean => (deps.lastJournalActivityAt(sessionId) ?? 0) >= cutoff
   // Before the scan, so a save already running when it starts still marks it stale.
   const candidate = trackNativeChatScratchExpiryCandidate(name)
   try {
-    if (usedSince() || (await changedSince(folder, run.cutoff))) {
-      return
+    if (usedSince() || (await changedSince(folder, cutoff))) {
+      return false
     }
-    const parked = await run.deps.runWhileExecutionIdle(sessionId, () =>
+    const parked = await deps.runWhileExecutionIdle(sessionId, () =>
       runUnderNativeChatScratchFolderLock(name, async () => {
         if (!candidate.isCurrent() || usedSince()) {
           return false
@@ -164,18 +152,15 @@ async function expireUnusedFolder(run: SweepRun, name: string, sessionId: string
         return true
       })
     )
-    if (!parked) {
-      return
-    }
+    return parked === true
   } catch (error) {
-    if (!isDefinitiveAbsence(error)) {
-      reportFailure(run, 'unused', sessionId, error)
+    if (isDefinitiveAbsence(error)) {
+      return false
     }
-    return
+    throw error
   } finally {
     candidate.dispose()
   }
-  await removeFolder(run, name + EXPIRED_SUFFIX, 'unused', sessionId)
 }
 
 /** Whether the folder or anything under it changed at or after `cutoff`. Every entry is read with
@@ -200,21 +185,6 @@ async function changedSince(folder: string, cutoff: number): Promise<boolean> {
     }
   }
   return false
-}
-
-function reportFailure(
-  run: SweepRun,
-  reason: RemovalReason,
-  sessionId: string | undefined,
-  error: unknown
-): void {
-  run.result.failed += 1
-  run.deps.logger.warn('native-chat scratch folder could not be removed', {
-    scope: 'nativeChatVisuals.sweep',
-    reason,
-    ...(sessionId ? { sessionId } : {}),
-    error
-  })
 }
 
 // Why minutes, not at boot: the first sweep must not compete with session restore; after that, a

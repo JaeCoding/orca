@@ -19,6 +19,11 @@ import type { StructuredAgentSessionLogger } from './agent-session-wire/structur
 import { nativeChatScratchFolderFor, nativeChatScratchRootFor } from './native-chat-scratch-folder'
 import { runNativeChatScratchSave } from './native-chat-scratch-folder-lock'
 import {
+  attach,
+  hostTestState
+} from './agent-session-wire/structured-agent-session-host-test-harness'
+import { HOST_TEST_SESSION } from './agent-session-wire/structured-agent-session-host-test-data'
+import {
   scheduleNativeChatVisualsSweep,
   sweepNativeChatVisualsFolders,
   type NativeChatVisualsSweepDeps
@@ -61,7 +66,7 @@ function age(path: string, daysAgo = 40): void {
 function deps(
   state: string,
   held: readonly string[] | null,
-  facts: { journal?: Record<string, number>; live?: readonly string[] } = {}
+  facts: { journal?: Record<string, number> } = {}
 ): NativeChatVisualsSweepDeps & {
   logger: { warn: ReturnType<typeof vi.fn<StructuredAgentSessionLogger['warn']>> }
   lanes: Map<string, Promise<void>>
@@ -71,11 +76,9 @@ function deps(
     stateDirectory: state,
     listHeldSessionIds: () => held,
     lastJournalActivityAt: (sessionId) => facts.journal?.[sessionId] ?? null,
-    // The host's lane: one task at a time per chat, vetoed while the chat has live work.
+    // Stands in for the host's lane: one task at a time per chat.
     runWhileExecutionIdle: <T>(sessionId: string, task: () => Promise<T>) =>
-      runKeyedSerializedOperation(lanes, sessionId, async () =>
-        facts.live?.includes(sessionId) ? null : await task()
-      ),
+      runKeyedSerializedOperation<T | null>(lanes, sessionId, task),
     lanes,
     logger: { warn: vi.fn<StructuredAgentSessionLogger['warn']>(), error: vi.fn() }
   }
@@ -96,14 +99,13 @@ describe('the visuals folder sweep', () => {
     expect(existsSync(orphan)).toBe(false)
   })
 
-  it('expires a chat unused for 30 days and keeps recent use and live work', async () => {
+  it('expires a chat unused for 30 days and keeps one with recent use', async () => {
     const state = stateDirectory()
     const unused = visualsFor(state, 'chat-unused')
     const talkedTo = visualsFor(state, 'chat-journal')
     const edited = visualsFor(state, 'chat-nested')
     mkdirSync(join(edited, 'drafts'))
     writeFileSync(join(edited, 'drafts', 'v2.html'), '<p>v2</p>')
-    const working = visualsFor(state, 'chat-live')
     const legacy = join(state, 'native-chat-visuals', 'a'.repeat(32))
     mkdirSync(legacy, { recursive: true })
     age(nativeChatScratchRootFor(state))
@@ -111,9 +113,8 @@ describe('the visuals folder sweep', () => {
     utimesSync(join(edited, 'drafts', 'v2.html'), fresh, fresh)
 
     const result = await sweepNativeChatVisualsFolders(
-      deps(state, ['chat-unused', 'chat-journal', 'chat-nested', 'chat-live'], {
-        journal: { 'chat-unused': Date.now() - 31 * DAY_MS, 'chat-journal': Date.now() - DAY_MS },
-        live: ['chat-live']
+      deps(state, ['chat-unused', 'chat-journal', 'chat-nested'], {
+        journal: { 'chat-unused': Date.now() - 31 * DAY_MS, 'chat-journal': Date.now() - DAY_MS }
       })
     )
 
@@ -122,8 +123,20 @@ describe('the visuals folder sweep', () => {
     expect(existsSync(`${unused}.expired`)).toBe(false)
     expect(existsSync(talkedTo)).toBe(true)
     expect(existsSync(edited)).toBe(true)
-    expect(existsSync(working)).toBe(true)
     expect(existsSync(join(state, 'native-chat-visuals'))).toBe(false)
+  })
+
+  it('keeps a chat past 30 days while the host runs its agent', async () => {
+    await attach()
+    const state = stateDirectory()
+    const folder = visualsFor(state, HOST_TEST_SESSION)
+    age(folder)
+    const result = await sweepNativeChatVisualsFolders({
+      ...deps(state, [HOST_TEST_SESSION]),
+      runWhileExecutionIdle: hostTestState().host.runWhileExecutionIdle
+    })
+    expect(result).toEqual({ removed: 0, failed: 0 })
+    expect(existsSync(folder)).toBe(true)
   })
 
   it('gives a start queued behind expiry a fresh folder', async () => {

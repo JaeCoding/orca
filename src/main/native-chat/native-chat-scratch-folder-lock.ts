@@ -58,10 +58,6 @@ export function trackNativeChatScratchExpiryCandidate(folderName: string): {
   expiryCandidates.set(folderName, candidate)
   return {
     isCurrent: () => candidate.current,
-    dispose: () => {
-      if (expiryCandidates.get(folderName) === candidate) {
-        expiryCandidates.delete(folderName)
-      }
-    }
+    dispose: () => expiryCandidates.delete(folderName)
   }
 }
