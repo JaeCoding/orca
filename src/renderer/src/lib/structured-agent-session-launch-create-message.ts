@@ -6,6 +6,8 @@ import {
   prepareLegacyStructuredLaunchPrompts
 } from './structured-agent-session-launch-prompt'
 import type { StructuredAgentLaunchReceipt } from './structured-agent-session-launch-recovery'
+import { structuredAgentSessionListedPicks } from '../../../shared/structured-agent-session-option-view'
+import { firstFrameOptionState } from '@/components/native-chat/use-structured-agent-session-option-state'
 import {
   applyStructuredLaunchHeldOptions,
   settleStructuredLaunchCreateOptions
@@ -24,7 +26,7 @@ export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchStat
     return
   }
   const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
-  const options = Object.keys(state.selection.held).length ? { ...state.selection.held } : undefined
+  const options = structuredLaunchCreateOptions(state)
   const params = {
     ...intent.params,
     ...(firstMessage ? { firstMessage } : {}),
@@ -42,6 +44,27 @@ export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchStat
   }
   intent.createPrepared = true
   notifyStructuredLaunchListeners()
+}
+
+/** Picks held so far, and what the host's saved list moves a model it no longer names to: a first
+ *  message starts its turn on the model the chat shows, as a later send does. */
+function structuredLaunchCreateOptions(
+  state: StructuredLaunchState
+): Readonly<Record<string, string>> | undefined {
+  const { intent, selection } = state
+  // A resumed conversation runs the model it ran; only a new one starts from the saved selection.
+  const shown = intent.params.resumeFrom
+    ? null
+    : firstFrameOptionState(intent.agent, intent.target, {
+        newLaunch: true,
+        worktree: intent.params.worktree,
+        seedsModel: intent.seedOptions?.model !== undefined
+      })
+  const options = {
+    ...selection.held,
+    ...(shown && structuredAgentSessionListedPicks(shown, intent.seedOptions, selection.held))
+  }
+  return Object.keys(options).length ? options : undefined
 }
 
 /** Later picks use the normal option path without holding publication behind startup. */

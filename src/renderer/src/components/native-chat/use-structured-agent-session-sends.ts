@@ -35,16 +35,16 @@ export function useStructuredAgentSessionSends(args: {
   isWorking?: boolean
   /** The chat reads Stopping: a send made now is drawn after the turn being stopped. */
   stopping?: boolean
-  /** Awaited before each send's request. */
-  prepare?: () => Promise<unknown>
+  /** The composer's model and effort each send carries; undefined to a host that takes none. */
+  sendOptions?: () => Readonly<Record<string, string>> | undefined
 }) {
   const {
     fence,
     historyLoaded,
     isWorking = false,
-    prepare,
     queue,
     queuedMessageIds,
+    sendOptions,
     sessionId,
     stopping,
     submissions,
@@ -94,14 +94,15 @@ export function useStructuredAgentSessionSends(args: {
         return false
       }
       const delivery = structuredAgentSessionQueueRequest(queue, attachments)
+      const options = sendOptions?.()
       const sent = sendStructuredAgentSessionMessage({
         sessionId,
         target,
         text,
         attachments,
         ...(delivery ? { delivery } : {}),
-        ...(stopping ? { sentWhileStopping: true as const } : {}),
-        ...(prepare ? { prepare } : {})
+        ...(options ? { options } : {}),
+        ...(stopping ? { sentWhileStopping: true as const } : {})
       })
       // Refused while the chat's send is out: the text stays in the box.
       if (!sent) {
@@ -116,7 +117,7 @@ export function useStructuredAgentSessionSends(args: {
         ? 'queued'
         : true
     },
-    [isWorking, prepare, queue, queuedMessageIds, sessionId, stopping, target]
+    [isWorking, queue, queuedMessageIds, sendOptions, sessionId, stopping, target]
   )
 
   return {

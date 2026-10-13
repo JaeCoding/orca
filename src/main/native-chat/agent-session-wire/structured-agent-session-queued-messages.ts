@@ -181,6 +181,7 @@ export async function maybeQueueStructuredAgentSessionSend(
     envelope: { clientOperationId: string }
     body: AgentJournalMessageItem
     delivery?: 'queue-if-active'
+    options?: Readonly<Record<string, string>>
     /** A person's send at a chat surface: every attachment it names must still be stored. */
     userSend?: true
     /** A person's message the host sends for them. */
@@ -233,6 +234,8 @@ export async function maybeQueueStructuredAgentSessionSend(
         // In the session that will send it: the reducer aliases the provider's echo by exactly this.
         fingerprint: agentSessionSendBodyFingerprint(ctx.sessionId, params.body),
         hostInstance: structuredAgentSessionHostInstance(),
+        // Applied when the card goes out, to the turn it starts.
+        ...(params.options ? { options: params.options } : {}),
         ...(params.userSend ? { requireAttachments: true } : {})
       },
       ctx.operationReceipt
@@ -259,6 +262,8 @@ export type QueuedMessageDrainDeps = {
   conversationFence: (sessionId: string) => number
   /** The consumed submission is ordinary #22821 work from here on. */
   wakeDelivery: (sessionId: string) => void
+  /** The model and effort the card's send carried, applied to the turn it starts. */
+  applySendOptions: (sessionId: string, options: Readonly<Record<string, string>>) => Promise<void>
   logger: StructuredAgentSessionLogger
 }
 
@@ -346,6 +351,9 @@ export class StructuredAgentSessionQueuedMessageDrain {
     const next = nextStructuredQueuedMessage({ journal, record, fence })
     if (this.disposed || !next) {
       return
+    }
+    if (next.options) {
+      await this.deps.applySendOptions(sessionId, next.options)
     }
     // Always a fresh id: the submission names its draft by `queuedMessageId`, never by id equality.
     const submissionId = createStructuredAgentSessionOperationId(randomUUID)

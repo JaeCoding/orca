@@ -10,7 +10,9 @@ import {
 import {
   nearestAgentEffort,
   structuredAgentSessionListedPicks,
-  structuredAgentSessionOptionView
+  structuredAgentSessionOptionView,
+  structuredAgentSessionSendSelection,
+  structuredAgentSessionShownSnapshot
 } from './structured-agent-session-option-view'
 
 const levels = (...values: string[]) => values.map((value) => ({ value, label: value }))
@@ -114,6 +116,54 @@ describe('a Claude model the verified list no longer offers', () => {
   it('keeps the model before any host answer', () => {
     expect(structuredAgentSessionListedPicks(fresh(), remembered, {})).toBeNull()
     expect(structuredAgentSessionListedPicks(stopped('claude-gone'), undefined, {})).toBeNull()
+  })
+})
+
+describe('what a send carries', () => {
+  it('carries the shown model and effort, the replacement included', () => {
+    const view = structuredAgentSessionOptionView(withHostList(), remembered, {})
+    expect(structuredAgentSessionSendSelection(view, null)).toEqual({
+      model: 'opus[1m]',
+      effort: 'xhigh'
+    })
+    // A chat that still runs a listed model carries that one.
+    const live = structuredAgentSessionOptionView(
+      withHostList(stopped('sonnet', [OPUS, SONNET])),
+      undefined,
+      {}
+    )
+    expect(structuredAgentSessionSendSelection(live, null)).toEqual({
+      model: 'sonnet',
+      effort: 'high'
+    })
+  })
+
+  it('carries a pick still on its way, so the pick and the send agree', () => {
+    const view = structuredAgentSessionOptionView(withHostList(), remembered, {})
+    expect(structuredAgentSessionSendSelection(view, { id: 'model', value: 'sonnet' })).toEqual({
+      model: 'sonnet'
+    })
+    expect(structuredAgentSessionSendSelection(view, { id: 'effort', value: 'low' })).toEqual({
+      model: 'opus[1m]',
+      effort: 'low'
+    })
+  })
+
+  it('carries nothing before a model shows, or for another agent', () => {
+    expect(structuredAgentSessionSendSelection(fresh(), null)).toBeUndefined()
+    const codex = applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState('codex', CLAUDE_SESSION_OPTION_CATALOG),
+      CLAUDE_SESSION_OPTION_CATALOG,
+      { models: [OPUS], current: { model: 'opus[1m]' } }
+    )
+    expect(structuredAgentSessionSendSelection(codex, null)).toBeUndefined()
+  })
+
+  it("shows the phone's picker on the replacement too", () => {
+    const model = structuredAgentSessionShownSnapshot(withHostList(stopped('claude-gone'))).find(
+      (descriptor) => descriptor.id === 'model'
+    )
+    expect(model?.kind).toMatchObject({ currentValue: 'opus[1m]' })
   })
 })
 

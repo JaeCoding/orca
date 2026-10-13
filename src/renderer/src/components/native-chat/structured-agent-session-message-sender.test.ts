@@ -117,27 +117,6 @@ describe('structured agent session message sender', () => {
     vi.useRealTimers()
   })
 
-  it("awaits the send's prepare step before its request, and sends even when it fails", async () => {
-    const calls = deferredCalls()
-    let finishPrepare = (): void => {}
-    const prepared = new Promise<void>((resolve) => {
-      finishPrepare = resolve
-    })
-    const a = send('a', { prepare: () => prepared })
-    await flush()
-    expect(sendCalls()).toBe(0)
-    expect(phases()).toEqual(['a:sending'])
-    finishPrepare()
-    await flush()
-    expect(sendCalls()).toBe(1)
-    calls[0].resolve(okSubmission(a.clientMessageId, 'accepted'))
-    expect(await a.outcome).toBe('recorded')
-
-    send('b', { prepare: () => Promise.reject(new Error('option refused')) })
-    await flush()
-    expect(sendCalls()).toBe(2)
-  })
-
   it('refuses a second send while one is out, and takes the next once it settles', async () => {
     const calls = deferredCalls()
     const a = send('a')
@@ -154,6 +133,20 @@ describe('structured agent session message sender', () => {
       envelope: { sessionId: SESSION, expectedRuntimeFence: 4 },
       body: { blocks: [{ type: 'text', text: 'b' }] }
     })
+  })
+
+  it('carries the options read at the send on its request, and nothing without them', async () => {
+    const calls = deferredCalls()
+    const a = send('a', { options: { model: 'opus', effort: 'high' } })
+    await flush()
+    expect(mocks.call.mock.calls[0][2]).toMatchObject({
+      options: { model: 'opus', effort: 'high' }
+    })
+    calls[0].resolve(okSubmission(a.clientMessageId, 'accepted'))
+    await a.outcome
+    send('b')
+    await flush()
+    expect(mocks.call.mock.calls[1][2]).not.toHaveProperty('options')
   })
 
   it.each([

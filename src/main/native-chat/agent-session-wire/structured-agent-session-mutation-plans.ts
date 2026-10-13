@@ -138,6 +138,7 @@ export function sendPlan(params: {
   body: AgentJournalMessageItem
   retryUnknown?: true
   delivery?: 'queue-if-active'
+  options?: Readonly<Record<string, string>>
   userSend?: true
   /** A person's message the host sends for them; `userSend` is always one. */
   personsMessage?: true
@@ -151,11 +152,12 @@ export function sendPlan(params: {
     operationIdScope: 'global',
     conversationWrite: true,
     commandReceipt: submissionOrDraftReceipt(clientMessageId),
-    // `delivery` joins the OPERATION fingerprint only; the submission row keeps
+    // `delivery` and `options` join the OPERATION fingerprint only; the submission row keeps
     // the body-only fingerprint the reducer's echo-aliasing recomputes.
     fields: {
       body: agentSessionMessagePayload(params.body),
-      ...(params.delivery ? { delivery: params.delivery } : {})
+      ...(params.delivery ? { delivery: params.delivery } : {}),
+      ...(params.options ? { options: params.options } : {})
     },
     recoverUnknownFromDurableState: true,
     // `retryUnknown` is a compatibility-only client signal. A recorded send

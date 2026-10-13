@@ -24,7 +24,6 @@ import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-
 import { encodeStructuredAgentSessionOptionValue } from '../../../../shared/structured-agent-session-option-codec'
 import type { StructuredAgentSessionMutate } from './use-structured-agent-session-mutate'
 import { useHostModelCatalogUpgrade } from './use-host-model-catalog-upgrade'
-import { useListedModelSend } from './use-listed-model-send'
 import { useStructuredAgentSessionOptionState } from './use-structured-agent-session-option-state'
 import { agentSessionWriteFailureText } from './agent-session-write-notice-text'
 import type { StructuredAgentSessionLaunchView } from './use-native-chat-provisional-launch'
@@ -146,7 +145,7 @@ export function useStructuredAgentSessionOptions(args: {
             : current
         )
       } else {
-        pendingOptionRef.current = id
+        pendingOptionRef.current = { id, value: encoded }
         updateOptionState((current) => ({ ...current, pendingId: id }))
       }
       let result: AgentSessionOptionResult | null = null
@@ -313,7 +312,7 @@ export function useStructuredAgentSessionOptions(args: {
     optionSnapshot,
     optionSurface,
     setStructuredOption,
-    prepareSend: useListedModelSend(optionStateRef, launch, sessionId, setStructuredOption),
+    sendRefs: { optionStateRef, pendingOptionRef },
     unavailable: hostCatalog.unavailable
   }
 }

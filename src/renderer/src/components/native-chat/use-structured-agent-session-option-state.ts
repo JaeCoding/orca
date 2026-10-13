@@ -12,6 +12,7 @@ import {
   type StructuredAgentSessionOptionState
 } from '../../../../shared/structured-agent-session-options'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import type { StructuredAgentSessionPendingPick } from '../../../../shared/structured-agent-session-option-view'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { readHostModelCatalogSnapshot } from '@/runtime/host-model-catalog-snapshots'
 import {
@@ -21,7 +22,7 @@ import {
 
 /** The first frame: the host's saved list when the renderer already holds it, else the seed,
  *  which shows the quiet placeholder until the host answers. */
-function firstFrameOptionState(
+export function firstFrameOptionState(
   agent: AgentType,
   target: RuntimeClientTarget,
   launch: { newLaunch: boolean; worktree?: string; seedsModel: boolean }
@@ -97,7 +98,8 @@ export function useStructuredAgentSessionOptionState(args: {
   }, [newLaunch, seedsModel, target, worktree])
   const optionStateRef = useRef(optionState)
   const activeOptionRecordRef = useRef(optionState.record)
-  const pendingOptionRef = useRef<string | null>(null)
+  // A pick on its way to the host, which every send carries too.
+  const pendingOptionRef = useRef<StructuredAgentSessionPendingPick | null>(null)
   const optionMutationGeneration = useRef(0)
   const updateOptionState = useCallback(
     (update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState) => {

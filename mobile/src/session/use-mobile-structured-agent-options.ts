@@ -18,9 +18,9 @@ import {
   commitStructuredAgentSessionOptionValues,
   createStructuredAgentSessionOptionState,
   structuredAgentSessionOptionPicks,
-  structuredAgentSessionOptionSnapshot,
   type StructuredAgentSessionOptionState
 } from '../../../src/shared/structured-agent-session-options'
+import { structuredAgentSessionShownSnapshot } from '../../../src/shared/structured-agent-session-option-view'
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../src/shared/agent-chat-permission-mode'
 import type { RpcClient } from '../transport/rpc-client'
 import {
@@ -43,6 +43,7 @@ type StructuredOptionsController = {
   optionSnapshot: SessionOptionDescriptor[]
   optionSurface: SessionOptionsSurface
   pendingOptionId: string | null
+  optionStateRef: { readonly current: StructuredAgentSessionOptionState }
   setStructuredOption: (id: string, value: SessionOptionValue) => Promise<boolean>
   invokeStructuredOption: (id: string) => Promise<boolean>
 }
@@ -173,7 +174,7 @@ export function useMobileStructuredAgentOptions(args: {
   ])
 
   const optionSnapshot = useMemo(
-    () => structuredAgentSessionOptionSnapshot(optionState),
+    () => structuredAgentSessionShownSnapshot(optionState),
     [optionState]
   )
 
@@ -292,7 +293,7 @@ export function useMobileStructuredAgentOptions(args: {
   const setOption = useCallback(
     async (id: string, value: SessionOptionValue) => {
       await setStructuredOption(id, value)
-      return { snapshot: structuredAgentSessionOptionSnapshot(optionStateRef.current) }
+      return { snapshot: structuredAgentSessionShownSnapshot(optionStateRef.current) }
     },
     [setStructuredOption]
   )
@@ -317,6 +318,7 @@ export function useMobileStructuredAgentOptions(args: {
     optionSnapshot,
     optionSurface,
     pendingOptionId: optionState.pendingId,
+    optionStateRef,
     setStructuredOption,
     invokeStructuredOption
   }

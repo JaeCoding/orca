@@ -57,6 +57,8 @@ export function useMobileStructuredSendWithOutcome(args: {
     'snapshot' | 'setOption' | 'invokeAction' | 'conversationCommands'
   >
   onSendError: MobileNativeChatSendErrorReporter
+  /** The model and effort the picker shows, which each send carries; absent for an older host. */
+  sendOptions?: () => Readonly<Record<string, string>> | undefined
 }): (
   text: string,
   images?: string[],
@@ -74,6 +76,7 @@ export function useMobileStructuredSendWithOutcome(args: {
     hold,
     onSendError,
     queueCapable,
+    sendOptions,
     sessionId,
     stateRef,
     stopping
@@ -138,6 +141,7 @@ export function useMobileStructuredSendWithOutcome(args: {
         queuedAt: Date.now(),
         ...(stopping ? { sentWhileStopping: true as const } : {})
       }
+      const options = sendOptions?.()
       const outcome = await sendMobileStructuredAgentSessionMessage({
         client,
         sessionId,
@@ -147,6 +151,7 @@ export function useMobileStructuredSendWithOutcome(args: {
         ...(mobileStructuredSendQueues(queueCapable, stateRef.current.items)
           ? { delivery: 'queue-if-active' as const }
           : {}),
+        ...(options ? { options } : {}),
         deadline,
         clientMessageId: send.clientMessageId,
         onError: onSendError
@@ -169,6 +174,7 @@ export function useMobileStructuredSendWithOutcome(args: {
       hold,
       onSendError,
       queueCapable,
+      sendOptions,
       sessionId,
       stateRef,
       stopping

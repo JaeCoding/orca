@@ -38,6 +38,7 @@ import {
   structuredAgentSessionSendBlock
 } from './structured-agent-session-send-preparation'
 import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
+import { applyStructuredAgentSessionSendOptions } from './structured-agent-session-send-options'
 
 function invalid(message: string): {
   ok: false
@@ -157,6 +158,7 @@ export function sendQueuedStructuredAgentMessage(
       if (hold === 'working' && row.body.command) {
         return invalid("A command can't be sent while the agent is working.")
       }
+      await applyStructuredAgentSessionSendOptions(context, ctx, row.options)
       const submissionId = operationId
       try {
         await ctx.journal.appendSubmission(

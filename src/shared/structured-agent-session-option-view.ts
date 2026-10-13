@@ -1,7 +1,9 @@
 import {
   commitStructuredAgentSessionOptionValues,
+  structuredAgentSessionOptionSnapshot,
   type StructuredAgentSessionOptionState
 } from './structured-agent-session-options'
+import type { SessionOptionDescriptor } from './native-chat-session-options'
 import { cloneNativeChatSessionOptionRecord } from './native-chat-session-option-state'
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from './agent-chat-permission-mode'
 
@@ -33,6 +35,15 @@ export function structuredAgentSessionOptionView(
   const permissionMode =
     heldPermission ?? state.permissionMode ?? seed?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID] ?? null
   return view.permissionMode === permissionMode ? view : { ...view, permissionMode }
+}
+
+/** The picker of a client that holds no launch selection, such as the phone. */
+export function structuredAgentSessionShownSnapshot(
+  state: StructuredAgentSessionOptionState
+): SessionOptionDescriptor[] {
+  return structuredAgentSessionOptionSnapshot(
+    structuredAgentSessionOptionView(state, undefined, {})
+  )
 }
 
 function modelOptionView(
@@ -127,4 +138,28 @@ export function structuredAgentSessionListedPicks(
         )
       : undefined
   return { model: target.id, ...(carried ? { effort: carried } : {}) }
+}
+
+/** A pick on its way to the host. */
+export type StructuredAgentSessionPendingPick = { id: string; value: string }
+
+/** The Claude model and effort the composer shows, which every send carries. A pick still on its
+ *  way to the host rides it too, so neither write undoes the other whichever lands first. */
+export function structuredAgentSessionSendSelection(
+  view: StructuredAgentSessionOptionState,
+  pending: StructuredAgentSessionPendingPick | null
+): Record<string, string> | undefined {
+  if (view.record.agent !== 'claude') {
+    return undefined
+  }
+  if (pending?.id === 'model') {
+    return { model: pending.value }
+  }
+  const model = view.record.model?.value
+  if (typeof model !== 'string') {
+    return undefined
+  }
+  const effort =
+    pending?.id === 'effort' ? pending.value : view.record.valuesByModel[model]?.effort?.value
+  return { model, ...(typeof effort === 'string' ? { effort } : {}) }
 }
