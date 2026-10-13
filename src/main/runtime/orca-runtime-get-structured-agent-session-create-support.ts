@@ -10,8 +10,10 @@ import { isNativeLocalLocation, LOCAL_EXECUTION_HOST_ID } from '../../shared/exe
 import { getLocalProjectWorktreeGitOptions } from '../project-runtime-git-options'
 import type { AgentSessionAttachParams } from '../native-chat/agent-session-wire/structured-agent-session-attach'
 import { resolveTuiAgentLaunchEnv } from '../../shared/tui-agent-launch-defaults'
-import { resolveHostAgentBaseEnvironment } from './structured-agent-shell-environment'
-import { resolveHostStructuredAgentCreateSupport } from './structured-agent-launch-support'
+import {
+  resolveHostStructuredAgentCreateSupport,
+  resolveHostStructuredAgentLaunchEnvironment
+} from './structured-agent-launch-support'
 import { structuredAgentRuntimeRegistration } from './structured-agent-runtime-registrations'
 import { structuredLaunchSeedOptions } from '../../shared/native-chat-session-option-defaults'
 import { hasPersistedStructuredAgentSessionStore as hasPersistedStructuredAgentSessionStoreOnDisk } from './structured-agent-session-runtime'
@@ -237,7 +239,7 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
             providerSessionId: input.resumeFrom.providerSessionId,
             selfSessionId: input.envelope.sessionId,
             selectedAccountHome,
-            launchEnv: { ...(await resolveHostAgentBaseEnvironment(settings)), ...launchEnv },
+            launchEnv: await resolveHostStructuredAgentLaunchEnvironment(input.agent, settings),
             workspaceCwd: (await this.resolveRuntimeFileTarget(input.worktree)).worktree.path
           })
         : null

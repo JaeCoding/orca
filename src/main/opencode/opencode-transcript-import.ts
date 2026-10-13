@@ -7,19 +7,19 @@ import { resolveOpenCodeDatabasePath } from './opencode-data-directory'
 import { environmentForStructuredOpenCodeAccountHome } from './opencode-structured-account-home'
 
 export const OPENCODE_TRANSCRIPT_IMPORT: StructuredAgentTranscriptImport = {
-  // The chat's own account, then the user's own environment, which Session History lists from.
+  // The selected account, then the unmanaged environment this chat would launch with.
   accountHomeCandidates: ({ selectedAccountHome }) => [
     selectedAccountHome,
     { kind: 'opencode', locator: { kind: 'unmanaged' } }
   ],
   // The database the account's OpenCode opens, which is the only one its chat can load from.
-  findTranscript: async ({ providerSessionId, accountHome }) => {
+  findTranscript: async ({ providerSessionId, accountHome, launchEnv }) => {
     if (isLegacyAgentSessionAccountHome(accountHome)) {
       return null
     }
     const env = environmentForStructuredOpenCodeAccountHome(accountHome, {
       managedAccounts: getManagedDataAccountService(),
-      baseEnvironment: process.env
+      baseEnvironment: launchEnv
     })
     const dbPath = resolveOpenCodeDatabasePath(
       env,

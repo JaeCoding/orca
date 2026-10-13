@@ -95,7 +95,7 @@ export function canPaneOfferResumeInNewChat(
   return (
     canHostOfferTabSessionMove('cli', hostScope) &&
     structuredAgentSessionLaunchFeasible(state, {
-      agent: conversation.agent,
+      agent: CLI_CONVERSATION_ADOPTING_AGENTS[conversation.agent],
       workspace: {
         kind: workspaceKindForWorktreeId(conversation.worktreeId),
         worktreeId: conversation.worktreeId

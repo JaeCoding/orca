@@ -36,12 +36,20 @@ export async function structuredAgentSupportsLaunch(
     return true
   }
   const settings = runtime.requireStore().getSettings()
-  const env = {
+  const env = await resolveHostStructuredAgentLaunchEnvironment(agent, settings)
+  const cwd = (await runtime.resolveRuntimeFileTarget(worktreeSelector)).worktree.path
+  return supportsLaunch({ cwd, env, commandSettings: settings })
+}
+
+/** The environment a new local chat launch starts from, before its account binding. */
+export async function resolveHostStructuredAgentLaunchEnvironment(
+  agent: string,
+  settings: LaunchEnvironmentSettings
+): Promise<Record<string, string>> {
+  return {
     ...(await resolveHostAgentBaseEnvironment(settings)),
     ...(isTuiAgent(agent) ? resolveTuiAgentLaunchEnv(agent, settings.agentDefaultEnv) : {})
   }
-  const cwd = (await runtime.resolveRuntimeFileTarget(worktreeSelector)).worktree.path
-  return supportsLaunch({ cwd, env, commandSettings: settings })
 }
 
 /** `agentSession.createSupport` on this host: every refusal it can know before spawning. The

@@ -18,6 +18,9 @@ import { resolveStructuredAgentSessionAdoptionForCreate } from '../runtime/struc
 import { prepareLegacyTranscriptImport } from './agent-session-journal/journal-legacy-import'
 import type { AgentSessionAccountHome } from '../../shared/agent-session-account-home'
 import { writeOpenCodeSqliteDatabase } from '../ai-vault/session-scanner-opencode-sqlite-fixture'
+import { resolveAcpLaunchInvocation } from '../acp/acp-structured-launch-resolution'
+import { acpLaunchSpecFor } from '../acp/acp-launch-specs'
+import { resolveOpenCodeDatabasePath } from '../opencode/opencode-data-directory'
 
 // The OpenCode reader's worker, run in process.
 vi.mock('../ai-vault/session-scanner-opencode-sqlite-worker-spawn', async (importOriginal) => {
@@ -342,6 +345,43 @@ describe('adopting an OpenCode CLI conversation', () => {
       options: { filePath: adoption.transcriptPath }
     })
     expect(imported.ok && JSON.stringify(imported.items)).toContain('ORCA-opencode-ADOPT')
+  })
+
+  it('imports from the configured database the resumed OpenCode child opens', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-opencode-configured-adopt-'))
+    const defaultDb = openCodeData(root)
+    const configuredDb = join(root, 'data', 'opencode', 'work.db')
+    writeOpenCodeSqliteDatabase(defaultDb, [
+      { id: OPENCODE_SESSION, turns: [{ role: 'user', parts: ['wrong database'] }] }
+    ])
+    writeOpenCodeSqliteDatabase(configuredDb, [
+      { id: OPENCODE_SESSION, turns: [{ role: 'user', parts: ['configured database'] }] }
+    ])
+    const baseEnvironment = { HOME: root, XDG_DATA_HOME: join(root, 'data') }
+    const launchEnv = { OPENCODE_DB: 'work.db' }
+    const adoption = await adopt('opencode', unmanaged, OPENCODE_SESSION, {
+      ...baseEnvironment,
+      ...launchEnv
+    })
+    const spec = acpLaunchSpecFor('opencode')
+    if (!spec) {
+      throw new Error('OpenCode launch spec missing')
+    }
+    const launch = await resolveAcpLaunchInvocation(spec, unmanaged, {
+      resolveEnvironment: async () => baseEnvironment,
+      resolveLaunchEnv: () => launchEnv,
+      resolveCommand: () => '/test/opencode'
+    })
+
+    expect(adoption.transcriptPath).toBe(configuredDb)
+    expect(resolveOpenCodeDatabasePath(launch.env, launch.env.HOME)).toBe(configuredDb)
+    const imported = await prepareLegacyTranscriptImport({
+      agent: 'opencode',
+      sessionId: OPENCODE_SESSION,
+      options: { filePath: adoption.transcriptPath }
+    })
+    expect(imported.ok && JSON.stringify(imported.items)).toContain('configured database')
+    expect(imported.ok && JSON.stringify(imported.items)).not.toContain('wrong database')
   })
 
   it('refuses a conversation the database does not hold, or a missing database', async () => {

@@ -404,7 +404,7 @@ describe('one pane of a terminal tab', () => {
     expect(paneGate(state, geminiPane)).toBe(false)
   })
 
-  it.each(['grok', 'omp', 'opencode'] as const)(
+  it.each(['grok', 'omp', 'opencode', 'opencode2'] as const)(
     "finds a %s pane's own conversation",
     (agentType) => {
       const paneKey = 'term-1:leaf-1'
