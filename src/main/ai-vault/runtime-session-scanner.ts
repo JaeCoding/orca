@@ -34,7 +34,13 @@ export type RuntimeAiVaultScanOptions = {
 const aiVaultPrepareSessionResumeResultSchema = z.object({
   useRealCodexHome: z.boolean(),
   substituteCodexHome: z.string().optional(),
-  forkedSession: z.object({ sessionId: z.string(), agent: z.enum(AI_VAULT_AGENTS) }).optional()
+  forkedSession: z
+    .object({
+      sessionId: z.string(),
+      agent: z.enum(AI_VAULT_AGENTS),
+      filePath: z.string().optional()
+    })
+    .optional()
 })
 
 export function getSavedRuntimeAiVaultHostInfos(

@@ -259,7 +259,10 @@ describe('aiVault.prepareSessionResume for a chat whose host makes the copy', ()
 
   it("has the server's chat copy an OMP conversation and answers the copy", async () => {
     const providerSessionId = '019fd611-2b3c-7d4e-9f50-6b7c8d9e0f1a'
-    const copy = vi.fn(async () => 'copy-1')
+    const copy = vi.fn(async () => ({
+      sessionId: 'copy-1',
+      filePath: '/sessions/copy-1.jsonl'
+    }))
     installCopyingChat({ transport: 'acp', agent: 'omp', nativeId: providerSessionId }, copy)
     const prepareAiVaultSessionResume = vi.fn()
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the handler reads only these runtime members.
@@ -282,7 +285,14 @@ describe('aiVault.prepareSessionResume for a chat whose host makes the copy', ()
 
     expect(response).toMatchObject({
       ok: true,
-      result: { useRealCodexHome: false, forkedSession: { sessionId: 'copy-1', agent: 'omp' } }
+      result: {
+        useRealCodexHome: false,
+        forkedSession: {
+          sessionId: 'copy-1',
+          filePath: '/sessions/copy-1.jsonl',
+          agent: 'omp'
+        }
+      }
     })
     expect(copy).toHaveBeenCalledWith(expect.objectContaining({ providerSessionId }))
     expect(prepareAiVaultSessionResume).not.toHaveBeenCalled()

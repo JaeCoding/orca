@@ -1,3 +1,4 @@
+import type { AgentSessionRecord } from '../../shared/agent-session-record'
 import {
   agentSessionLeaseFixture,
   agentSessionRecordFixture
@@ -64,7 +65,8 @@ export function installOwnership(
  *  conversation through `copy`. */
 export function installCopyingChat(
   handle: AgentSessionProviderHandle,
-  copy: StructuredAgentSessionAdapter['copyConversation']
+  copy: StructuredAgentSessionAdapter['copyConversation'],
+  otherRecords: AgentSessionRecord[] = []
 ): void {
   const lease = { ...agentSessionLeaseFixture(), sessionId: 'chat-1' }
   const fixture = agentSessionRecordFixture(lease)
@@ -80,7 +82,7 @@ export function installCopyingChat(
   setStructuredAgentSessionHost({
     deps: {
       store: {
-        listRecords: () => [record],
+        listRecords: () => [record, ...otherRecords],
         getRecord: (sessionId: string) => (sessionId === record.sessionId ? record : null)
       },
       adapter: { copyConversation: copy }

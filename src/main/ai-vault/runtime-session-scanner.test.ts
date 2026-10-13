@@ -193,7 +193,10 @@ describe('runtime AI Vault session scanner', () => {
       ok: true,
       result: {
         useRealCodexHome: false,
-        forkedSession: { sessionId: 'ses_copy1', agent: 'opencode' }
+        forkedSession: {
+          sessionId: 'ses_copy1',
+          agent: 'opencode'
+        }
       }
     })
 
@@ -208,8 +211,33 @@ describe('runtime AI Vault session scanner', () => {
       })
     ).resolves.toEqual({
       useRealCodexHome: false,
-      forkedSession: { sessionId: 'ses_copy1', agent: 'opencode' }
+      forkedSession: {
+        sessionId: 'ses_copy1',
+        agent: 'opencode'
+      }
     })
+  })
+
+  it('keeps the copied OMP transcript path returned by its host', async () => {
+    const forkedSession = {
+      sessionId: 'omp-copy',
+      agent: 'omp' as const,
+      filePath: '/pinned-omp/sessions/copy.jsonl'
+    }
+    mocks.callRuntimeEnvironment.mockResolvedValueOnce({
+      ok: true,
+      result: { useRealCodexHome: false, forkedSession }
+    })
+    await expect(
+      prepareRuntimeAiVaultSessionResume('/user-data', 'env-1', {
+        agent: 'omp',
+        sessionId: 'omp-source',
+        filePath: '/pinned-omp/sessions/source.jsonl',
+        codexHome: null,
+        executionHostId: 'runtime:env-1',
+        fork: true
+      })
+    ).resolves.toEqual({ useRealCodexHome: false, forkedSession })
   })
 
   it('fails retryably when runtime preparation returns an invalid result', async () => {

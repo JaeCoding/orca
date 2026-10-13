@@ -33,5 +33,5 @@ export function describeAiVaultCliForkFailure(message: string): string {
   const code = compactIpcErrorMessage(message)
   return code === 'agent_session_conflict' || code === 'agent_session_ownership_unknown'
     ? aiVaultCliForkHostTooOldMessage()
-    : message
+    : (code ?? message)
 }

@@ -1,3 +1,4 @@
+import type * as ForkStartup from '@/lib/ai-vault-session-fork-startup'
 // @vitest-environment happy-dom
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +7,7 @@ import type { WebRuntimeTerminalCreateOutcome } from '@/runtime/web-runtime-sess
 
 const mocks = vi.hoisted(() => ({
   buildAiVaultForkStartupForWorktree: vi.fn(),
+  getState: vi.fn(),
   buildAiVaultResumeStartupForWorktree: vi.fn(),
   prepareAiVaultSessionForFork: vi.fn(),
   prepareAiVaultSessionForResume: vi.fn(),
@@ -15,10 +17,16 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn()
 }))
 
-vi.mock('@/lib/ai-vault-session-fork-startup', () => ({
+vi.mock('@/lib/ai-vault-session-fork-startup', async (importOriginal) => ({
+  ...(await importOriginal<typeof ForkStartup>()),
+  buildAiVaultCopiedSessionStartupForWorktree: (args: { session: AiVaultSession }) => ({
+    ...mocks.buildAiVaultResumeStartupForWorktree(args),
+    agent: args.session.agent
+  }),
   buildAiVaultForkStartupForWorktree: mocks.buildAiVaultForkStartupForWorktree
 }))
 vi.mock('@/lib/ai-vault-resume-command', () => ({
+  resolveAiVaultResumeHost: () => ({ platform: 'linux', codexHome: null, liveShell: undefined }),
   buildAiVaultResumeStartupForWorktree: mocks.buildAiVaultResumeStartupForWorktree,
   buildAiVaultResumeCopyCommandForWorktree: vi.fn()
 }))
@@ -46,7 +54,7 @@ vi.mock('./ai-vault-session-resume-in-chat-launch', () => ({
 }))
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError, success: mocks.toastSuccess } }))
 vi.mock('@/store', () => ({
-  useAppStore: { getState: () => ({ activeWorktreeId: 'worktree-1', settings: {} }) }
+  useAppStore: { getState: mocks.getState }
 }))
 
 import { useAiVaultSessionLaunchActions } from './ai-vault-session-launch-actions'
@@ -77,11 +85,12 @@ const owned: AiVaultSession = {
 
 const FORK_STARTUP = { command: "claude --resume 'provider-1' --fork-session", cwd: '/repo' }
 
-function renderActions() {
+function renderActions(agentCmdOverrides?: { opencode?: string }) {
   return renderHook(() =>
     useAiVaultSessionLaunchActions({
       activeWorktree: null,
       activeWorktreeId: 'worktree-1',
+      agentCmdOverrides,
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the mocked launch target never reads it.
       targetState: {} as never
     })
@@ -91,12 +100,51 @@ function renderActions() {
 describe('Resume in New CLI launch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.getState.mockReturnValue({ activeWorktreeId: 'worktree-1', settings: {} })
     mocks.prepareAiVaultSessionForFork.mockImplementation(async (session) => ({
       session,
       copied: false
     }))
     mocks.buildAiVaultForkStartupForWorktree.mockReturnValue(FORK_STARTUP)
     mocks.launchAiVaultSessionInNewTab.mockReturnValue({ tabId: 'tab-1' })
+  })
+
+  it.each(['command', 'arguments'] as const)(
+    'refuses effective OpenCode %s server routing before asking for any copy',
+    async (location) => {
+      const chat = { ...owned, agent: 'opencode2' as const }
+      mocks.getState.mockReturnValue({
+        activeWorktreeId: 'worktree-1',
+        settings: {
+          agentDefaultArgs:
+            location === 'arguments' ? { opencode: '--server=http://synthetic-server' } : {}
+        }
+      })
+      renderActions(
+        location === 'command'
+          ? { opencode: 'opencode --server http://synthetic-server' }
+          : undefined
+      ).handleResumeInNewCli(chat, 'worktree-2')
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(1))
+      expect(mocks.toastError).toHaveBeenCalledWith(expect.stringContaining('Remove --server'))
+      expect(mocks.prepareAiVaultSessionForFork).not.toHaveBeenCalled()
+      expect(mocks.launchAiVaultSessionInNewTab).not.toHaveBeenCalled()
+    }
+  )
+
+  it('leaves ordinary resumes on their configured server route', async () => {
+    const session = { ...owned, agent: 'opencode' as const, structuredSession: undefined }
+    mocks.getState.mockReturnValue({
+      activeWorktreeId: 'worktree-1',
+      settings: { agentDefaultArgs: { opencode: '--server http://synthetic-server' } }
+    })
+    mocks.prepareAiVaultSessionForResume.mockResolvedValue(session)
+    mocks.buildAiVaultResumeStartupForWorktree.mockReturnValue({
+      command: 'opencode --server http://synthetic-server --session existing'
+    })
+    renderActions().handleResume(session, 'worktree-2')
+    await waitFor(() => expect(mocks.launchAiVaultSessionInNewTab).toHaveBeenCalledTimes(1))
+    expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
   it('opens the fork plan in the chosen workspace, never the plain resume plan', async () => {
@@ -138,6 +186,42 @@ describe('Resume in New CLI launch', () => {
       ...RESUME_STARTUP
     })
     expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it('launches an OpenCode 2 copy as its actual opencode provider', async () => {
+    const chat = { ...owned, agent: 'opencode2' as const }
+    const copy = {
+      ...chat,
+      agent: 'opencode' as const,
+      sessionId: 'copy-1',
+      filePath: '',
+      resumeCommand: ''
+    }
+    const launchConfig = {
+      agentArgs: '',
+      agentEnv: { XDG_DATA_HOME: '/account-a/data', XDG_STATE_HOME: '/account-a/state' }
+    }
+    mocks.prepareAiVaultSessionForFork.mockResolvedValue({
+      session: copy,
+      copied: true
+    })
+    mocks.buildAiVaultResumeStartupForWorktree.mockReturnValue({
+      command: 'opencode --session copy-1',
+      launchConfig,
+      providerSession: { key: 'session_id', id: 'copy-1' }
+    })
+    renderActions().handleResumeInNewCli(chat, 'worktree-2')
+    await waitFor(() => expect(mocks.launchAiVaultSessionInNewTab).toHaveBeenCalledTimes(1))
+    expect(mocks.buildAiVaultResumeStartupForWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ session: copy })
+    )
+    expect(mocks.launchAiVaultSessionInNewTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agent: 'opencode',
+        launchConfig,
+        providerSession: { key: 'session_id', id: 'copy-1' }
+      })
+    )
   })
 
   it('shows one toast and opens nothing when the agent cannot fork', async () => {

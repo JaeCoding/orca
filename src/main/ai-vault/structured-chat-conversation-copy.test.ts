@@ -1,3 +1,7 @@
+import {
+  agentSessionRecordFixture,
+  agentSessionLeaseFixture
+} from '../../shared/agent-session-record.test-fixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionProviderHandle } from '../../shared/agent-session-provider-handle'
 import type { AiVaultPrepareSessionResumeArgs } from '../../shared/ai-vault-resume-preparation'
@@ -36,7 +40,10 @@ describe('copying a chat conversation for Resume in New CLI', () => {
   ])(
     "has the chat's host copy a $agent row's conversation",
     async ({ agent, handle, sessionId }) => {
-      const copy = vi.fn(async () => 'copy-1')
+      const copy = vi.fn(async () => ({
+        sessionId: 'copy-1',
+        filePath: '/sessions/copy-1.jsonl'
+      }))
       installChat(handle, copy)
 
       await expect(
@@ -44,7 +51,11 @@ describe('copying a chat conversation for Resume in New CLI', () => {
       ).resolves.toEqual({
         useRealCodexHome: false,
         // The copy opens with the CLI that ran the chat: `opencode` for an OpenCode 2.x row.
-        forkedSession: { sessionId: 'copy-1', agent: handle.agent }
+        forkedSession: {
+          sessionId: 'copy-1',
+          filePath: '/sessions/copy-1.jsonl',
+          agent: handle.agent
+        }
       })
       expect(copy).toHaveBeenCalledWith({
         identity: {
@@ -54,13 +65,38 @@ describe('copying a chat conversation for Resume in New CLI', () => {
           agent: handle.agent,
           providerHandle: handle
         },
-        providerSessionId: sessionId
+        providerSessionId: sessionId,
+        accountHome: expect.any(Object)
       })
     }
   )
 
+  it.each(['source', 'owned'])('rejects a %s fork id on the execution host', async (returned) => {
+    const lease = agentSessionLeaseFixture()
+    const fixture = agentSessionRecordFixture(lease)
+    const copy = vi.fn(async () => ({
+      sessionId: returned === 'source' ? OMP_ID : 'other-owned'
+    }))
+    installChat(acp('omp', OMP_ID), copy, [
+      {
+        ...fixture,
+        sessionId: 'other-chat',
+        provider: 'omp',
+        providerHandleChain: [
+          { ...fixture.providerHandleChain[0]!, handle: acp('omp', 'other-owned') }
+        ]
+      }
+    ])
+    await expect(copyStructuredChatConversation(fork({}))).rejects.toThrow(
+      'already owned by a chat'
+    )
+  })
+
   it('leaves a resume, and a fork its CLI makes, to the usual preparation', async () => {
-    const copy = vi.fn(async () => 'copy-1')
+    const copy = vi.fn(async () => ({
+      sessionId: 'copy-1',
+      filePath: '/sessions/copy-1.jsonl'
+    }))
     installChat(acp('omp', OMP_ID), copy)
 
     await expect(copyStructuredChatConversation(fork({ fork: false }))).resolves.toBeNull()
@@ -71,7 +107,10 @@ describe('copying a chat conversation for Resume in New CLI', () => {
   })
 
   it('refuses when no chat owns the row any more, never copying another', async () => {
-    const copy = vi.fn(async () => 'copy-1')
+    const copy = vi.fn(async () => ({
+      sessionId: 'copy-1',
+      filePath: '/sessions/copy-1.jsonl'
+    }))
     installChat(acp('omp', OMP_ID), copy)
 
     await expect(

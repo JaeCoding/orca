@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store/types'
-import { buildAiVaultForkStartupForWorktree } from './ai-vault-session-fork-startup'
+import {
+  buildAiVaultCopiedSessionStartupForWorktree,
+  buildAiVaultForkStartupForWorktree
+} from './ai-vault-session-fork-startup'
 
 vi.mock('@/lib/new-workspace', () => ({
   CLIENT_PLATFORM: 'darwin'
@@ -81,5 +84,50 @@ describe('AI Vault fork into the CLI', () => {
         session: { agent: 'gemini', sessionId: SESSION_ID, cwd: '/Users/ada/repo', codexHome: null }
       })
     ).toBeNull()
+  })
+})
+
+describe('copied OpenCode 2 launch mode', () => {
+  const session = {
+    agent: 'opencode',
+    sessionId: 'ses_copied',
+    cwd: '/Users/ada/repo',
+    codexHome: null
+  } as const
+
+  it('adds stock standalone mode once to the actual provider', () => {
+    const startup = buildAiVaultCopiedSessionStartupForWorktree(
+      { state: makeState(), session },
+      'opencode2'
+    )
+    expect(startup.command).toBe("opencode '--standalone' '--session' 'ses_copied'")
+    expect(startup.launchConfig?.agentArgs).toBe("'--standalone'")
+  })
+
+  it.each(['argument', 'settings'])('lets an explicit %s executable control its mode', (source) => {
+    const state = makeState()
+    if (source === 'settings' && state.settings) {
+      state.settings.agentCmdOverrides = { opencode: '/synthetic/team-opencode' }
+    }
+    const startup = buildAiVaultCopiedSessionStartupForWorktree(
+      {
+        state,
+        session,
+        ...(source === 'argument' ? { commandOverride: '/synthetic/team-opencode' } : {})
+      },
+      'opencode2'
+    )
+    expect(startup.command).toBe("/synthetic/team-opencode '--session' 'ses_copied'")
+    expect(startup.launchConfig?.agentArgs).toBe('')
+  })
+
+  it('keeps already configured standalone without injecting it again', () => {
+    const state = makeState()
+    if (state.settings) {
+      state.settings.agentDefaultArgs = { opencode: '--standalone --port 4321' }
+    }
+    const startup = buildAiVaultCopiedSessionStartupForWorktree({ state, session }, 'opencode2')
+    expect(startup.command).toBe("opencode '--standalone' '--port' '4321' '--session' 'ses_copied'")
+    expect(startup.launchConfig?.agentArgs).toBe('--standalone --port 4321')
   })
 })

@@ -70,6 +70,35 @@ async function spawnDeletions(
 }
 
 describe.each(['renderer', 'runtime'])('%s managed account daemon environment', (route) => {
+  it('keeps the selected account B for an ordinary explicit account-shaped environment', async () => {
+    selected.value = {
+      XDG_DATA_HOME: '/account-b/data',
+      XDG_STATE_HOME: '/account-b/state',
+      OPENCODE_AUTH_CONTENT: '',
+      OPENCODE_DB: 'opencode.db'
+    }
+    const env = {
+      XDG_DATA_HOME: '/explicit-account-a/data',
+      XDG_STATE_HOME: '/explicit-account-a/state',
+      OPENCODE_AUTH_CONTENT: '',
+      OPENCODE_DB: 'opencode.db'
+    }
+    applyManagedDataAccountEnvironment(env, { launchAgent: 'opencode' })
+    const envToDelete = await spawnDeletions(route, env)
+    const child = createDaemonPtyEnvironment({
+      sessionId: 'pane',
+      cols: 80,
+      rows: 24,
+      env,
+      envToDelete
+    })
+    expect(child).toMatchObject({
+      ...selected.value,
+      ORCA_DATA_ACCOUNT_DATA_HOME: '/account-b/data',
+      ORCA_DATA_ACCOUNT_STATE_HOME: '/account-b/state'
+    })
+  })
+
   it('honors explicit user deletions and preserves unknown daemon metadata', async () => {
     const env: Record<string, string> = {}
     const envToDelete = await spawnDeletions(route, env, ['XDG_STATE_HOME'])

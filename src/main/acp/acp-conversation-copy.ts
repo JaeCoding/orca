@@ -1,36 +1,65 @@
-// "Resume in New CLI" for an ACP agent whose CLI has no copy flag: the agent copies the chat's
-// conversation over its chat protocol, and the terminal opens the copy with a plain resume, so the
-// CLI never becomes a second writer on the conversation the chat owns.
-
+import { normalizeAgentProviderSession } from '../../shared/agent-session-resume'
+import {
+  assertOpenCodeCopyUsesLocalStore,
+  OpenCodeCopyServerRouteError
+} from '../../shared/opencode-launch-command'
+// The chat protocol saves an independent conversation; its ordinary CLI opens that copy.
 import type { AgentSessionJournalIdentity } from '../../shared/agent-session-journal-types'
+import {
+  agentSessionAccountHomesEqual,
+  type AgentSessionAccountHome
+} from '../../shared/agent-session-account-home'
+import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
+import type { AiVaultConversationCopy } from '../../shared/ai-vault-resume-preparation'
+import { resolveSessionFilePath } from '../native-chat/session-file-resolver'
+import { resolveOmpSessionsDir } from '../ai-vault/omp-session-root'
 import { AcpRpcError } from './acp-errors'
 import { acpAgentName } from './acp-structured-agent-definitions'
 import type { AcpStructuredConnection } from './acp-structured-connection'
 import type { AcpStructuredSessionAdapterDeps } from './acp-structured-session-adapter-deps'
 
-/** Bounds a copy, which is one request: past it the agent is closed and the copy fails. */
+class AcpCopyAccountMismatchError extends Error {
+  constructor() {
+    super('Select the account this chat uses before opening its copy in a CLI.')
+  }
+}
+
 export const ACP_CONVERSATION_COPY_TIMEOUT_MS = 60_000
 
-/**
- * Copies provider conversation `providerSessionId` of the chat `identity` names into a new one the
- * agent saves, and answers the copy's id. A short-lived agent runs under the chat's own launch
- * (binary, account, environment and folder), whether or not the chat's agent is running: both read
- * the same saved conversation, and only the copy is written.
- */
 export async function copyAcpConversation(
-  deps: Pick<AcpStructuredSessionAdapterDeps, 'spec' | 'readLaunch' | 'connect'>,
-  input: { identity: AgentSessionJournalIdentity; providerSessionId: string },
-  timeoutMs = ACP_CONVERSATION_COPY_TIMEOUT_MS
-): Promise<string> {
+  deps: Pick<
+    AcpStructuredSessionAdapterDeps,
+    'spec' | 'readLaunch' | 'resolveLaunchArgs' | 'connect' | 'logger'
+  >,
+  input: {
+    identity: AgentSessionJournalIdentity
+    providerSessionId: string
+    accountHome: AgentSessionAccountHome
+  },
+  options: {
+    timeoutMs?: number
+    signal?: AbortSignal
+    track: (connection: AcpStructuredConnection) => void
+  }
+): Promise<AiVaultConversationCopy> {
   const name = acpAgentName(deps.spec.agent)
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? ACP_CONVERSATION_COPY_TIMEOUT_MS)
+  const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout
   let connection: AcpStructuredConnection | null = null
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timedOut = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${name} did not answer in time.`)), timeoutMs)
-  })
   try {
-    // Unsealed: it runs no turn, so it carries none of the chat's identity, and no pane's either.
-    const launch = await deps.readLaunch(input.identity)
+    signal.throwIfAborted()
+    if (deps.spec.agent === 'opencode') {
+      const args = await waitForPromiseWithSignal(
+        Promise.resolve(deps.resolveLaunchArgs?.() ?? []),
+        signal
+      )
+      assertOpenCodeCopyUsesLocalStore(args)
+    }
+    signal.throwIfAborted()
+    const launch = await waitForPromiseWithSignal(deps.readLaunch(input.identity), signal)
+    signal.throwIfAborted()
+    await assertCopyAccountSelected(deps.spec, input.accountHome, launch.env, signal)
+    signal.throwIfAborted()
     connection = deps.connect(
       {
         command: launch.command,
@@ -41,11 +70,44 @@ export async function copyAcpConversation(
       },
       { clientInfo: { name: 'orca', version: '1' } }
     )
-    return await Promise.race([
+    options.track(connection)
+    const sessionId = await waitForPromiseWithSignal(
       forkAdvertised(connection, input.providerSessionId, launch.cwd),
-      timedOut
-    ])
+      signal
+    )
+    await assertCopyAccountSelected(deps.spec, input.accountHome, launch.env, signal)
+    const providerSession = normalizeAgentProviderSession({ key: 'session_id', id: sessionId })
+    if (!providerSession || providerSession.id !== sessionId) {
+      throw new Error('The agent returned an invalid copied conversation identity.')
+    }
+    if (sessionId === input.providerSessionId) {
+      throw new Error('The agent returned the original conversation instead of a copy.')
+    }
+    const filePath =
+      deps.spec.agent === 'omp'
+        ? await resolveSessionFilePath(
+            'omp',
+            sessionId,
+            {
+              ompSessionsDir: resolveOmpSessionsDir({ env: launch.env })
+            },
+            signal
+          )
+        : undefined
+    if (deps.spec.agent === 'omp' && !filePath) {
+      throw new Error('OMP did not save the copied conversation in its pinned session directory.')
+    }
+    return {
+      sessionId,
+      ...(filePath ? { filePath } : {})
+    }
   } catch (error) {
+    if (
+      error instanceof AcpCopyAccountMismatchError ||
+      error instanceof OpenCodeCopyServerRouteError
+    ) {
+      throw error
+    }
     throw new Error(
       error instanceof AcpRpcError && error.code === -32601
         ? `This ${name} version cannot copy a chat. Update ${name} to resume this chat in a new CLI.`
@@ -53,12 +115,15 @@ export async function copyAcpConversation(
       { cause: error }
     )
   } finally {
-    clearTimeout(timer)
-    await connection?.close().catch(() => false)
+    if (connection && !(await connection.close().catch(() => false))) {
+      deps.logger?.warn('ACP conversation copy child exit is unproven; retained for cleanup', {
+        scope: 'acp-conversation-copy',
+        sessionId: input.identity.sessionId
+      })
+    }
   }
 }
 
-/** `session/fork`, asked only of an agent that advertises it; -32601 (no such method) otherwise. */
 async function forkAdvertised(
   connection: AcpStructuredConnection,
   sessionId: string,
@@ -69,4 +134,19 @@ async function forkAdvertised(
     throw new AcpRpcError(-32601, 'session/fork is not advertised')
   }
   return connection.forkSession(sessionId, cwd)
+}
+
+/** Rederive selection at the fork boundaries; ordinary terminals still own their normal routing. */
+async function assertCopyAccountSelected(
+  spec: AcpStructuredSessionAdapterDeps['spec'],
+  home: AgentSessionAccountHome,
+  launchEnv: Record<string, string>,
+  signal: AbortSignal
+): Promise<void> {
+  if ('kind' in home && home.kind === 'opencode') {
+    const selected = await waitForPromiseWithSignal(spec.account.resolve({ launchEnv }), signal)
+    if (!agentSessionAccountHomesEqual(home, selected)) {
+      throw new AcpCopyAccountMismatchError()
+    }
+  }
 }

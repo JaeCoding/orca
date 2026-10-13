@@ -196,8 +196,8 @@ describe('resolveTabSessionHistorySubject', () => {
   it('skips a chat of an agent that cannot copy its conversation', () => {
     expect(
       resolveTabSessionHistorySubject(makeState(), {
-        tab: { id: 'unified-1', worktreeId: WORKTREE_ID, launchAgent: 'gemini' },
-        structuredSessionId: 'orca-chat-1'
+        tab: { id: 'unified-1', worktreeId: WORKTREE_ID },
+        nativeChat: { sessionId: 'orca-chat-1', agent: 'gemini' }
       })
     ).toBeNull()
   })

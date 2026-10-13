@@ -1,3 +1,4 @@
+import type { AiVaultConversationCopy } from '../../../shared/ai-vault-resume-preparation'
 import type {
   AgentSessionAccountKind,
   AgentSessionUnavailable
@@ -445,7 +446,8 @@ export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & 
   copyConversation?(input: {
     identity: AgentSessionJournalIdentity
     providerSessionId: string
-  }): Promise<string>
+    accountHome: AgentSessionAccountHome
+  }): Promise<AiVaultConversationCopy>
   /** Gracefully stops the structured owner after its event stream is drained. */
   /** Returns true only after the provider child exit is proven. A root-exit or processless verdict
    *  is thrown only once the session is finalized; read it through `stopAgentSessionProviderRoot`. */

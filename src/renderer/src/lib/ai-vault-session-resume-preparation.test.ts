@@ -147,7 +147,11 @@ describe('prepareAiVaultSessionForFork', () => {
     async (agent) => {
       const prepareSessionResume = vi.fn().mockResolvedValue({
         useRealCodexHome: false,
-        forkedSession: { sessionId: 'copy-1', agent: agent === 'opencode2' ? 'opencode' : agent }
+        forkedSession: {
+          sessionId: 'copy-1',
+          filePath: '/sessions/copy-1.jsonl',
+          agent: agent === 'opencode2' ? 'opencode' : agent
+        }
       })
       stubPreparation(prepareSessionResume)
       const owned = session({
@@ -174,7 +178,7 @@ describe('prepareAiVaultSessionForFork', () => {
       expect(prepared.session).toMatchObject({
         agent: agent === 'opencode2' ? 'opencode' : agent,
         sessionId: 'copy-1',
-        filePath: '',
+        filePath: '/sessions/copy-1.jsonl',
         resumeCommand: '',
         cwd: '/repo',
         executionHostId: 'runtime:env-1'

@@ -1,3 +1,7 @@
+import {
+  notifyAiVaultSessionPreparationFailure,
+  notifyAiVaultSessionQueued
+} from './ai-vault-session-launch-feedback'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -6,7 +10,11 @@ import {
   type AiVaultResumeCommandSession,
   type AiVaultResumeStartup
 } from '@/lib/ai-vault-resume-command'
-import { buildAiVaultForkStartupForWorktree } from '@/lib/ai-vault-session-fork-startup'
+import {
+  assertAiVaultCopiedSessionLaunchAllowed,
+  buildAiVaultCopiedSessionStartupForWorktree,
+  buildAiVaultForkStartupForWorktree
+} from '@/lib/ai-vault-session-fork-startup'
 import { launchAiVaultSessionInNewTab } from '@/lib/launch-ai-vault-session'
 import { useAppStore } from '@/store'
 import type { AiVaultAgent, AiVaultSession } from '../../../../shared/ai-vault-types'
@@ -109,15 +117,6 @@ export function useAiVaultSessionLaunchActions({
       if (!targetId) {
         return
       }
-      const showQueuedToast = (): void => {
-        toast.success(
-          translate(
-            'auto.components.right.sidebar.AiVaultPanel.agentSessionQueued',
-            '{{value0}} session queued',
-            { value0: agentLabel(session.agent) }
-          )
-        )
-      }
       void prepareStartup(targetId.worktreeId)
         .then((startup) => {
           const launchResult = launchAiVaultSessionInNewTab({
@@ -141,14 +140,14 @@ export function useAiVaultSessionLaunchActions({
               if (useAppStore.getState().activeWorktreeId !== targetId.worktreeId) {
                 activateAiVaultResumeWorkspace(targetId.worktreeId)
               }
-              showQueuedToast()
+              notifyAiVaultSessionQueued(session.agent)
             })
             return
           }
           if (useAppStore.getState().activeWorktreeId !== targetId.worktreeId) {
             activateAiVaultResumeWorkspace(targetId.worktreeId)
           }
-          showQueuedToast()
+          notifyAiVaultSessionQueued(session.agent)
         })
         .catch((error: unknown) => notifyAiVaultSessionPreparationFailure(error, describeFailure))
     },
@@ -174,11 +173,25 @@ export function useAiVaultSessionLaunchActions({
   const handleResumeInNewCli = useCallback(
     (session: AiVaultSession, targetWorktreeId: string): void => {
       const prepareStartup = async (worktreeId: string): Promise<AiVaultResumeStartup> => {
+        assertAiVaultCopiedSessionLaunchAllowed({
+          state: useAppStore.getState(),
+          worktreeId,
+          session,
+          commandOverride: agentCmdOverrides?.opencode
+        })
         const prepared = await prepareAiVaultSessionForFork(session)
         const target = await dropDeletedSshResumeCwd(prepared.session)
         // A copy the chat's host already made is the terminal's own conversation: a plain resume.
         const startup = prepared.copied
-          ? buildResumeStartup(target, worktreeId)
+          ? buildAiVaultCopiedSessionStartupForWorktree(
+              {
+                state: useAppStore.getState(),
+                worktreeId,
+                session: target,
+                commandOverride: agentCmdOverrides?.[target.agent]
+              },
+              session.agent
+            )
           : buildAiVaultForkStartupForWorktree({
               state: useAppStore.getState(),
               worktreeId,
@@ -197,7 +210,7 @@ export function useAiVaultSessionLaunchActions({
       }
       launchInTerminal(session, targetWorktreeId, prepareStartup, describeAiVaultCliForkFailure)
     },
-    [agentCmdOverrides, buildResumeStartup, launchInTerminal]
+    [agentCmdOverrides, launchInTerminal]
   )
 
   const handleResumeInNewChat = useCallback(
@@ -278,20 +291,6 @@ export function useAiVaultSessionLaunchActions({
     continuationRequest,
     handleContinuationDialogOpenChange
   }
-}
-
-function notifyAiVaultSessionPreparationFailure(
-  error: unknown,
-  describeFailure: (message: string) => string = (message) => message
-): void {
-  toast.error(
-    error instanceof Error
-      ? describeFailure(error.message)
-      : translate(
-          'auto.components.right.sidebar.AiVaultPanel.prepareSessionResumeFailed',
-          'Could not prepare this session for resume.'
-        )
-  )
 }
 
 function resolveAiVaultSessionLaunchTargetOrNotify(

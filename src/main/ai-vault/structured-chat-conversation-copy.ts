@@ -26,7 +26,7 @@ export async function copyStructuredChatConversation(
   if (!host || !ownership || !record || !copy) {
     throw new Error('This chat is no longer in Orca, so it cannot be copied to a new CLI.')
   }
-  const forkedSessionId = await copy.call(host.deps.adapter, {
+  const forkedSession = await copy.call(host.deps.adapter, {
     identity: {
       sessionId: record.sessionId,
       workspaceId: record.location.workspaceId,
@@ -35,12 +35,19 @@ export async function copyStructuredChatConversation(
       providerHandle:
         agentSessionProviderHandleChainHead(record.providerHandleChain)?.handle ?? null
     },
-    providerSessionId: ownership.providerSessionId
+    providerSessionId: ownership.providerSessionId,
+    accountHome: record.accountHome
   })
+  if (
+    forkedSession.sessionId === ownership.providerSessionId ||
+    findResumeOwnership({ agent: args.agent, sessionId: forkedSession.sessionId, filePath: '' })
+  ) {
+    throw new Error('The agent returned a conversation already owned by a chat instead of a copy.')
+  }
   return {
     useRealCodexHome: false,
     forkedSession: {
-      sessionId: forkedSessionId,
+      ...forkedSession,
       // The chat's own agent, not the row's: an OpenCode 2 row's chat runs `opencode`.
       agent: isAiVaultAgent(record.provider) ? record.provider : args.agent
     }

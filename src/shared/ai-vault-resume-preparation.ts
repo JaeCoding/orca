@@ -1,5 +1,10 @@
 import type { AiVaultAgent, AiVaultSession } from './ai-vault-types'
 
+export type AiVaultConversationCopy = {
+  sessionId: string
+  filePath?: string
+}
+
 export type AiVaultPrepareSessionResumeArgs = Pick<
   AiVaultSession,
   'agent' | 'filePath' | 'codexHome' | 'executionHostId'
@@ -19,7 +24,7 @@ export type AiVaultPrepareSessionResumeResult = {
   /** The copy a fork made of a chat's conversation, for an agent whose chat makes it
    *  (`agentForksThroughChat`): its id, and the agent whose CLI opens it, the chat's (an OpenCode
    *  2.x chat lists as `opencode2` but runs `opencode`). Absent from older hosts, which make none. */
-  forkedSession?: { sessionId: string; agent: AiVaultAgent }
+  forkedSession?: AiVaultConversationCopy & { agent: AiVaultAgent }
 }
 
 export type AiVaultSessionResumePreparation = (

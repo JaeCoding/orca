@@ -23,7 +23,10 @@ afterEach(() => setStructuredAgentSessionHost(null))
 
 describe('Resume in New CLI preparation for a chat whose host makes the copy', () => {
   it("has this machine's chat make the copy instead of preparing a home", async () => {
-    const copy = vi.fn(async () => 'copy-1')
+    const copy = vi.fn(async () => ({
+      sessionId: 'copy-1',
+      filePath: '/sessions/copy-1.jsonl'
+    }))
     installCopyingChat({ transport: 'acp', agent: 'omp', nativeId: OMP_ID }, copy)
     const prepareSessionResume = vi.fn()
 
@@ -31,24 +34,38 @@ describe('Resume in New CLI preparation for a chat whose host makes the copy', (
       prepareAiVaultSessionResume(forkArgs('local'), { prepareSessionResume })
     ).resolves.toEqual({
       useRealCodexHome: false,
-      forkedSession: { sessionId: 'copy-1', agent: 'omp' }
+      forkedSession: {
+        sessionId: 'copy-1',
+        filePath: '/sessions/copy-1.jsonl',
+        agent: 'omp'
+      }
     })
     expect(prepareSessionResume).not.toHaveBeenCalled()
   })
 
   it('leaves the copy to the server that runs a remote chat', async () => {
-    const copy = vi.fn(async () => 'local-copy')
+    const copy = vi.fn(async () => ({
+      sessionId: 'local-copy'
+    }))
     installCopyingChat({ transport: 'acp', agent: 'omp', nativeId: 'unrelated' }, copy)
     const prepareRuntimeSessionResume = vi.fn(async () => ({
       useRealCodexHome: false,
-      forkedSession: { sessionId: 'remote-copy', agent: 'omp' as const }
+      forkedSession: {
+        sessionId: 'remote-copy',
+        filePath: '/sessions/remote-copy.jsonl',
+        agent: 'omp' as const
+      }
     }))
 
     await expect(
       prepareAiVaultSessionResume(forkArgs('runtime:env-1'), { prepareRuntimeSessionResume })
     ).resolves.toEqual({
       useRealCodexHome: false,
-      forkedSession: { sessionId: 'remote-copy', agent: 'omp' }
+      forkedSession: {
+        sessionId: 'remote-copy',
+        filePath: '/sessions/remote-copy.jsonl',
+        agent: 'omp'
+      }
     })
     expect(prepareRuntimeSessionResume).toHaveBeenCalledWith('env-1', forkArgs('runtime:env-1'))
     expect(copy).not.toHaveBeenCalled()
