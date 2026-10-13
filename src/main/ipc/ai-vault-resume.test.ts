@@ -19,6 +19,68 @@ const local = {
 afterEach(() => setStructuredAgentSessionHost(null))
 
 describe('desktop resume host admission', () => {
+  it('continues resume preparation when chat-host initialization fails on a neutral row', async () => {
+    const failure = new Error('chat host could not start')
+    const ensureStructuredSessionOwnership = vi.fn().mockRejectedValue(failure)
+    const prepareSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: false })
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      await expect(
+        prepareAiVaultSessionResume(local, {
+          ensureStructuredSessionOwnership,
+          prepareSessionResume
+        })
+      ).resolves.toEqual({ useRealCodexHome: false })
+      expect(prepareSessionResume).toHaveBeenCalledWith(local)
+      expect(warning).toHaveBeenCalledWith(
+        '[ai-vault] native chat host setup failed during terminal resume:',
+        failure
+      )
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('still refuses an actual owner when chat-host initialization fails', async () => {
+    installOwnership()
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const prepareSessionResume = vi.fn()
+
+    try {
+      await expect(
+        prepareAiVaultSessionResume(local, {
+          ensureStructuredSessionOwnership: vi
+            .fn()
+            .mockRejectedValue(new Error('host unavailable')),
+          prepareSessionResume
+        })
+      ).rejects.toThrow('agent_session_conflict')
+      expect(prepareSessionResume).not.toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it.each([
+    { codexHome: '/managed', fork: false },
+    { codexHome: null, fork: true }
+  ])('keeps chat-host setup failures for existing home or fork requests %j', async (caseArgs) => {
+    const failure = new Error('host unavailable')
+    const prepareSessionResume = vi.fn()
+
+    await expect(
+      prepareAiVaultSessionResume(
+        { ...local, ...caseArgs },
+        {
+          ensureStructuredSessionOwnership: vi.fn().mockRejectedValue(failure),
+          prepareSessionResume
+        }
+      )
+    ).rejects.toBe(failure)
+    expect(prepareSessionResume).not.toHaveBeenCalled()
+  })
+
   it.each(['claude', 'omp', 'codex'] as const)(
     'refuses an owned native %s row before home preparation',
     async (agent) => {

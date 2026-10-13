@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RpcDispatcher } from '../dispatcher'
 import type { RpcRequest } from '../core'
 import { OrcaRuntimeService } from '../../orca-runtime'
+import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
+import {
+  installOwnership,
+  PROVIDER_SESSION
+} from '../../../ai-vault/structured-session-ownership.test-support'
 import type { AiVaultListResult, AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { AiVaultServiceScanOptions } from '../../../ai-vault/session-scanner-service-protocol'
 import {
@@ -193,6 +198,154 @@ describe('aiVault.listSessions params schema', () => {
 })
 
 describe('aiVault.prepareSessionResume', () => {
+  afterEach(() => setStructuredAgentSessionHost(null))
+
+  it('continues host resume preparation after chat-host setup fails on a neutral row', async () => {
+    const failure = new Error('chat host could not start')
+    const prepareAiVaultSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: false })
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this handler reads only the listed runtime members.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      ensureStructuredAgentSessionHost: vi.fn().mockRejectedValue(failure),
+      prepareAiVaultSessionResume
+    } as unknown as OrcaRuntimeService
+
+    try {
+      const response = await new RpcDispatcher({ runtime, methods: AI_VAULT_METHODS }).dispatch(
+        makeRequest('aiVault.prepareSessionResume', {
+          agent: 'codex',
+          filePath: '/managed/sessions/rollout-a.jsonl',
+          codexHome: null
+        })
+      )
+
+      expect(response).toMatchObject({ ok: true, result: { useRealCodexHome: false } })
+      expect(prepareAiVaultSessionResume).toHaveBeenCalledOnce()
+      expect(warning).toHaveBeenCalledWith(
+        '[ai-vault] native chat host setup failed during terminal resume:',
+        failure
+      )
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('checks an existing owner even when chat-host setup fails', async () => {
+    installOwnership()
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const prepareAiVaultSessionResume = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this handler reads only the listed runtime members.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      ensureStructuredAgentSessionHost: vi.fn().mockRejectedValue(new Error('host unavailable')),
+      prepareAiVaultSessionResume
+    } as unknown as OrcaRuntimeService
+
+    try {
+      const response = await new RpcDispatcher({ runtime, methods: AI_VAULT_METHODS }).dispatch(
+        makeRequest('aiVault.prepareSessionResume', {
+          agent: 'codex',
+          sessionId: PROVIDER_SESSION,
+          filePath: `/sessions/rollout-${PROVIDER_SESSION}.jsonl`,
+          codexHome: null
+        })
+      )
+
+      expect(response).toMatchObject({ ok: false, error: { code: 'agent_session_conflict' } })
+      expect(prepareAiVaultSessionResume).not.toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it.each([
+    { codexHome: '/managed', fork: false },
+    { codexHome: null, fork: true }
+  ])('keeps chat-host setup failures for existing home or fork requests %j', async (caseArgs) => {
+    const prepareAiVaultSessionResume = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this handler reads only the listed runtime members.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      ensureStructuredAgentSessionHost: vi.fn().mockRejectedValue(new Error('host unavailable')),
+      prepareAiVaultSessionResume
+    } as unknown as OrcaRuntimeService
+
+    await expect(
+      new RpcDispatcher({ runtime, methods: AI_VAULT_METHODS }).dispatch(
+        makeRequest('aiVault.prepareSessionResume', {
+          agent: 'codex',
+          filePath: '/managed/sessions/rollout-a.jsonl',
+          ...caseArgs
+        })
+      )
+    ).resolves.toMatchObject({ ok: false, error: { message: 'host unavailable' } })
+    expect(prepareAiVaultSessionResume).not.toHaveBeenCalled()
+  })
+
+  it('keeps owner refusals and home preparation failures outside the setup fallback', async () => {
+    const refusal = agentSessionRefusalError('agent_session_ownership_unknown', {
+      reason: 'ownerUnproven'
+    })
+    const prepareAiVaultSessionResume = vi.fn().mockRejectedValue(new Error('home unavailable'))
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this handler reads only the listed runtime members.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      ensureStructuredAgentSessionHost: vi
+        .fn()
+        .mockRejectedValueOnce(refusal)
+        .mockResolvedValueOnce(undefined),
+      prepareAiVaultSessionResume
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: AI_VAULT_METHODS })
+    const args = {
+      agent: 'codex',
+      filePath: '/managed/sessions/rollout-a.jsonl',
+      codexHome: '/managed'
+    }
+
+    await expect(
+      dispatcher.dispatch(makeRequest('aiVault.prepareSessionResume', args))
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'agent_session_ownership_unknown' }
+    })
+    expect(prepareAiVaultSessionResume).not.toHaveBeenCalled()
+
+    await expect(
+      dispatcher.dispatch(makeRequest('aiVault.prepareSessionResume', args))
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { message: 'home unavailable' }
+    })
+    expect(prepareAiVaultSessionResume).toHaveBeenCalledOnce()
+  })
+
+  it('skips native host setup and ownership for WSL while preparing its Codex home', async () => {
+    installOwnership()
+    const prepareAiVaultSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: true })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this handler reads only the listed runtime members.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      ensureStructuredAgentSessionHost: vi.fn().mockRejectedValue(new Error('host unavailable')),
+      prepareAiVaultSessionResume
+    } as unknown as OrcaRuntimeService
+    const wsl = {
+      agent: 'codex',
+      sessionId: PROVIDER_SESSION,
+      filePath: String.raw`\\wsl.localhost\Ubuntu\home\ada\session.jsonl`,
+      codexHome: '/managed'
+    }
+
+    await expect(
+      new RpcDispatcher({ runtime, methods: AI_VAULT_METHODS }).dispatch(
+        makeRequest('aiVault.prepareSessionResume', wsl)
+      )
+    ).resolves.toMatchObject({ ok: true, result: { useRealCodexHome: true } })
+    expect(runtime.ensureStructuredAgentSessionHost).not.toHaveBeenCalled()
+    expect(prepareAiVaultSessionResume).toHaveBeenCalledWith({ ...wsl, executionHostId: 'local' })
+  })
+
   it('validates bounded paths and executes against the receiving host identity', async () => {
     expect(
       AiVaultPrepareSessionResumeParams.safeParse({
@@ -249,6 +402,46 @@ describe('aiVault.prepareSessionResume', () => {
     expect(prepareAiVaultSessionResume).toHaveBeenCalledWith(
       expect.objectContaining({ fork: true, executionHostId: 'local' })
     )
+  })
+
+  it('keeps same-ID native ownership refusal while allowing WSL home preparation', async () => {
+    installOwnership()
+    const prepareAiVaultSessionResume = vi.fn().mockResolvedValue({ useRealCodexHome: false })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the handler reads only these runtime members.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      ensureStructuredAgentSessionHost: vi.fn(async () => undefined),
+      prepareAiVaultSessionResume
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: AI_VAULT_METHODS })
+    const args = {
+      agent: 'codex',
+      sessionId: PROVIDER_SESSION,
+      filePath: `/sessions/rollout-${PROVIDER_SESSION}.jsonl`,
+      codexHome: null
+    }
+
+    await expect(
+      dispatcher.dispatch(makeRequest('aiVault.prepareSessionResume', args))
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'agent_session_conflict' }
+    })
+    expect(prepareAiVaultSessionResume).not.toHaveBeenCalled()
+    expect(runtime.ensureStructuredAgentSessionHost).toHaveBeenCalledOnce()
+
+    const wsl = { ...args, filePath: String.raw`\\wsl.localhost\Ubuntu\home\ada\session.jsonl` }
+    await expect(
+      dispatcher.dispatch(makeRequest('aiVault.prepareSessionResume', wsl))
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { useRealCodexHome: false }
+    })
+    expect(prepareAiVaultSessionResume).toHaveBeenCalledWith({
+      ...wsl,
+      executionHostId: 'local'
+    })
+    expect(runtime.ensureStructuredAgentSessionHost).toHaveBeenCalledOnce()
   })
 })
 

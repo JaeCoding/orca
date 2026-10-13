@@ -18,7 +18,7 @@ vi.mock('@/lib/ai-vault-session-drag', () => ({
   readAiVaultSessionDragData: mocks.readPayload
 }))
 vi.mock('@/lib/ai-vault-session-resume-preparation', () => ({
-  prepareAiVaultSessionResumeRequest: mocks.prepareSessionResume
+  prepareAiVaultTerminalResumeRequest: mocks.prepareSessionResume
 }))
 vi.mock('@/lib/ai-vault-resume-target', () => ({
   canResumeAiVaultSessionOnTarget: () => true,
@@ -41,6 +41,52 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('Session History drop', () => {
+  it('launches a paired row on the paired workspace after old-host preparation falls back', async () => {
+    mocks.prepareSessionResume.mockResolvedValue({ useRealCodexHome: false })
+    mocks.launch.mockReturnValue({ tabId: 'tab-1' })
+    mocks.readPayload.mockReturnValue({
+      agent: 'claude',
+      sessionId: 'session-1',
+      sessionFilePath: '/host/session.jsonl',
+      sessionExecutionHostId: 'runtime:paired',
+      codexHome: null,
+      command: 'claude --resume session-1'
+    })
+    const view = render(<AiVaultSessionDropLayer worktreeId="paired-worktree" enabled />)
+    const pane = document.createElement('div')
+    pane.dataset.tabGroupBodyId = 'group-1'
+    pane.dataset.worktreeId = 'paired-worktree'
+    pane.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100)
+    view.container.append(pane)
+    const layer = view.container.querySelector('[data-ai-vault-session-drop-layer]')
+    if (!layer) {
+      throw new Error('Drop layer missing')
+    }
+    layer.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100)
+    const event = new MouseEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 10,
+      clientY: 10
+    })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { types: ['application/x-orca-ai-vault-session'] }
+    })
+    fireEvent(layer, event)
+
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce())
+    expect(mocks.prepareSessionResume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionHostId: 'runtime:paired',
+        filePath: '/host/session.jsonl'
+      })
+    )
+    expect(mocks.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreeId: 'paired-worktree', targetGroupId: 'group-1' })
+    )
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
   it.each(['claude', 'omp', 'codex'] as const)(
     'prepares a stale %s row and refuses before terminal launch',
     async (agent) => {
@@ -76,6 +122,9 @@ describe('Session History drop', () => {
       fireEvent(layer, event)
 
       await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(1))
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        `This ${agent === 'omp' ? 'OMP' : agent === 'codex' ? 'Codex' : 'Claude'} conversation is open in a chat. Refresh Session History to open it.`
+      )
       expect(mocks.prepareSessionResume).toHaveBeenCalledWith({
         agent,
         sessionId: 'session-1',

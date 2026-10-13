@@ -13,7 +13,8 @@ import type { AiVaultAgent, AiVaultSession } from '../../../../shared/ai-vault-t
 import {
   dropDeletedSshResumeCwd,
   prepareAiVaultSessionForFork,
-  prepareAiVaultSessionForResume
+  prepareAiVaultSessionForResume,
+  prepareAiVaultSessionForTerminalResume
 } from '@/lib/ai-vault-session-resume-preparation'
 import type { Worktree } from '../../../../shared/worktree/types'
 import { translate } from '@/i18n/i18n'
@@ -164,10 +165,14 @@ export function useAiVaultSessionLaunchActions({
         void activateAiVaultStructuredSession(session)
         return
       }
-      launchInTerminal(session, targetWorktreeId, (worktreeId) =>
-        prepareAiVaultSessionForResume(session)
-          .then(dropDeletedSshResumeCwd)
-          .then((preparedSession) => buildResumeStartup(preparedSession, worktreeId))
+      launchInTerminal(
+        session,
+        targetWorktreeId,
+        (worktreeId) =>
+          prepareAiVaultSessionForTerminalResume(session)
+            .then(dropDeletedSshResumeCwd)
+            .then((preparedSession) => buildResumeStartup(preparedSession, worktreeId)),
+        (message) => describeAiVaultResumeFailure(new Error(message), session.agent)
       )
     },
     [buildResumeStartup, launchInTerminal]

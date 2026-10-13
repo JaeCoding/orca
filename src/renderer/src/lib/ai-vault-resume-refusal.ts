@@ -13,14 +13,14 @@ export function describeAiVaultResumeFailure(error: unknown, agent: AiVaultAgent
   if (code === 'agent_session_conflict') {
     return translate(
       'auto.lib.aiVaultResumeRefusal.openInChat',
-      '{{value0}} is already open in a native chat. Open that chat, or choose Resume in New CLI to make a copy.',
+      'This {{value0}} conversation is open in a chat. Refresh Session History to open it.',
       { value0: aiVaultAgentLabel(agent) }
     )
   }
   if (code === 'agent_session_ownership_unknown') {
     return translate(
       'auto.lib.aiVaultResumeRefusal.ownershipUnknown',
-      'Orca cannot safely resume this {{value0}} session in a terminal. Open its native chat and try again.',
+      'Orca could not confirm who owns this {{value0}} conversation. Refresh Session History and try again.',
       { value0: aiVaultAgentLabel(agent) }
     )
   }

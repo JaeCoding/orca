@@ -1,14 +1,16 @@
 // @vitest-environment happy-dom
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AiVaultSession } from '../../../../shared/ai-vault-types'
+import { aiVaultAgentLabel, type AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { WebRuntimeTerminalCreateOutcome } from '@/runtime/web-runtime-session-types'
 
 const mocks = vi.hoisted(() => ({
   buildAiVaultForkStartupForWorktree: vi.fn(),
+  buildAiVaultResumeCopyCommandForWorktree: vi.fn(),
   buildAiVaultResumeStartupForWorktree: vi.fn(),
   prepareAiVaultSessionForFork: vi.fn(),
   prepareAiVaultSessionForResume: vi.fn(),
+  prepareAiVaultSessionForTerminalResume: vi.fn(),
   launchAiVaultSessionInNewTab: vi.fn(),
   activateAiVaultResumeWorkspace: vi.fn(),
   toastError: vi.fn(),
@@ -20,11 +22,12 @@ vi.mock('@/lib/ai-vault-session-fork-startup', () => ({
 }))
 vi.mock('@/lib/ai-vault-resume-command', () => ({
   buildAiVaultResumeStartupForWorktree: mocks.buildAiVaultResumeStartupForWorktree,
-  buildAiVaultResumeCopyCommandForWorktree: vi.fn()
+  buildAiVaultResumeCopyCommandForWorktree: mocks.buildAiVaultResumeCopyCommandForWorktree
 }))
 vi.mock('@/lib/ai-vault-session-resume-preparation', () => ({
   prepareAiVaultSessionForFork: mocks.prepareAiVaultSessionForFork,
   prepareAiVaultSessionForResume: mocks.prepareAiVaultSessionForResume,
+  prepareAiVaultSessionForTerminalResume: mocks.prepareAiVaultSessionForTerminalResume,
   dropDeletedSshResumeCwd: async (session: unknown) => session
 }))
 vi.mock('@/lib/launch-ai-vault-session', () => ({
@@ -158,24 +161,103 @@ describe('Resume in New CLI launch', () => {
 describe('stale ordinary Resume', () => {
   beforeEach(() => vi.clearAllMocks())
 
+  it('launches an old paired-host row in its chosen paired workspace after preparation falls back', async () => {
+    const remote = {
+      ...owned,
+      structuredSession: undefined,
+      executionHostId: 'runtime:paired' as const
+    }
+    mocks.prepareAiVaultSessionForTerminalResume.mockResolvedValue(remote)
+    mocks.buildAiVaultResumeStartupForWorktree.mockReturnValue({
+      command: 'claude --resume provider-1'
+    })
+    mocks.launchAiVaultSessionInNewTab.mockReturnValue({ tabId: 'tab-1' })
+
+    renderActions().handleResume(remote, 'paired-worktree')
+
+    await waitFor(() => expect(mocks.launchAiVaultSessionInNewTab).toHaveBeenCalledOnce())
+    expect(mocks.prepareAiVaultSessionForTerminalResume).toHaveBeenCalledWith(remote)
+    expect(mocks.buildAiVaultResumeStartupForWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ session: remote, worktreeId: 'paired-worktree' })
+    )
+    expect(mocks.launchAiVaultSessionInNewTab).toHaveBeenCalledWith({
+      agent: 'claude',
+      worktreeId: 'paired-worktree',
+      command: 'claude --resume provider-1'
+    })
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
   it.each(['claude', 'omp', 'codex'] as const)(
     'refuses a stale %s row before creating a terminal',
     async (agent) => {
       const stale = { ...owned, agent, structuredSession: undefined }
-      mocks.prepareAiVaultSessionForResume.mockRejectedValue(
+      mocks.prepareAiVaultSessionForTerminalResume.mockRejectedValue(
         new Error(
           "Error invoking remote method 'aiVault:prepareSessionResume': Error: agent_session_conflict"
         )
       )
-
       renderActions().handleResume(stale, 'worktree-1')
 
       await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(1))
+      expect(mocks.prepareAiVaultSessionForTerminalResume).toHaveBeenCalledWith(stale)
+      expect(mocks.prepareAiVaultSessionForResume).not.toHaveBeenCalled()
       expect(mocks.toastError).toHaveBeenCalledWith(
-        expect.stringContaining('Open that chat, or choose Resume in New CLI')
+        `This ${aiVaultAgentLabel(agent)} conversation is open in a chat. Refresh Session History to open it.`
       )
       expect(mocks.launchAiVaultSessionInNewTab).not.toHaveBeenCalled()
       expect(mocks.toastSuccess).not.toHaveBeenCalled()
     }
   )
+
+  it('explains unknown ownership without claiming a chat is open', async () => {
+    const stale = { ...owned, agent: 'omp' as const, structuredSession: undefined }
+    mocks.prepareAiVaultSessionForTerminalResume.mockRejectedValue(
+      new Error('agent_session_ownership_unknown')
+    )
+    renderActions().handleResume(stale, 'worktree-1')
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledOnce())
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      'Orca could not confirm who owns this OMP conversation. Refresh Session History and try again.'
+    )
+    expect(mocks.launchAiVaultSessionInNewTab).not.toHaveBeenCalled()
+  })
+})
+
+describe('Copy Resume Command', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('copies a stale-owned row through home preparation without terminal admission', async () => {
+    const stale = { ...owned, structuredSession: undefined }
+    const writeClipboardText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { ui: { writeClipboardText } }
+    })
+    mocks.prepareAiVaultSessionForResume.mockResolvedValue(stale)
+    mocks.buildAiVaultResumeCopyCommandForWorktree.mockReturnValue('claude --resume provider-1')
+
+    await renderActions().copyResumeCommand(stale, 'worktree-1')
+
+    expect(mocks.prepareAiVaultSessionForResume).toHaveBeenCalledWith(stale)
+    expect(mocks.prepareAiVaultSessionForTerminalResume).not.toHaveBeenCalled()
+    expect(writeClipboardText).toHaveBeenCalledWith('claude --resume provider-1')
+    expect(mocks.launchAiVaultSessionInNewTab).not.toHaveBeenCalled()
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Resume command copied')
+  })
+
+  it('gives a next step if home preparation cannot confirm ownership', async () => {
+    const stale = { ...owned, agent: 'codex' as const, structuredSession: undefined }
+    mocks.prepareAiVaultSessionForResume.mockRejectedValue(
+      new Error('agent_session_ownership_unknown')
+    )
+
+    await renderActions().copyResumeCommand(stale, 'worktree-1')
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      'Orca could not confirm who owns this Codex conversation. Refresh Session History and try again.'
+    )
+    expect(mocks.buildAiVaultResumeCopyCommandForWorktree).not.toHaveBeenCalled()
+  })
 })

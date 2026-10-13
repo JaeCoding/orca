@@ -7,6 +7,7 @@ import type {
 import { isUnresolvedOwnerHostId, parseExecutionHostId } from '../../shared/execution-host'
 import { isWslUncPath } from '../../shared/wsl-paths'
 import { assertLegacyAiVaultResumeAllowed } from '../ai-vault/structured-session-ownership'
+import { tryEnsureStructuredAgentSessionHostForResume } from '../runtime/structured-agent-session-host-refusal'
 
 export type AiVaultResumeHandlerOptions = {
   ensureStructuredSessionOwnership?: () => Promise<void>
@@ -39,7 +40,11 @@ export async function prepareAiVaultSessionResume(
     return { useRealCodexHome: false }
   }
   if (!isWslUncPath(args.filePath)) {
-    await options.ensureStructuredSessionOwnership?.()
+    if (options.ensureStructuredSessionOwnership) {
+      await (args.codexHome === null && !args.fork
+        ? tryEnsureStructuredAgentSessionHostForResume(options.ensureStructuredSessionOwnership)
+        : options.ensureStructuredSessionOwnership())
+    }
     assertLegacyAiVaultResumeAllowed(args)
   }
   return options.prepareSessionResume?.(args) ?? { useRealCodexHome: false }
