@@ -1,3 +1,4 @@
+import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../../shared/agent-chat-permission-mode'
 import type { z } from 'zod'
 import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
 import { agentSessionFingerprintConflict } from '../../../../shared/agent-session-mutation-envelope'
@@ -32,7 +33,16 @@ async function resolveClientSuppliedAttach(params: z.infer<typeof AttachParams>,
       reason: 'hostUnsupported'
     })
   }
-  const attachParams: AgentSessionAttachParams = params
+  const seed = host.deps.store.getRecord(params.envelope.sessionId)
+    ? undefined
+    : ctx.runtime.structuredAgentSessionLaunchSeedOptions(params.agent)
+  const permissionMode = seed?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID]
+  const attachParams: AgentSessionAttachParams = {
+    ...params,
+    ...(permissionMode
+      ? { options: { [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: permissionMode } }
+      : {})
+  }
   return { host, attachParams }
 }
 

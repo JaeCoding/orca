@@ -32,10 +32,7 @@ import {
 } from './structured-agent-session-provider-child'
 import type { DeferredStructuredAgentSessionEventSink } from './structured-agent-session-event-sink'
 import { noteStructuredAgentSessionProviderStarted } from './structured-agent-session-provider-started'
-import {
-  structuredAgentSessionLaunchPermission,
-  structuredAgentSessionStartOptions
-} from './structured-agent-session-launch-permission'
+import { structuredAgentSessionLaunchPermission } from './structured-agent-session-launch-permission'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import { isStructuredAgentSessionStartupExpired } from './structured-agent-session-startup-attempt'
 import type { StructuredAgentSessionStartupAttempt } from './structured-agent-session-startup-attempt-contract'
@@ -211,7 +208,6 @@ async function runAttachUnderAbort(
       optionRevision: () => context.runtimeState.optionRevisions.current(sessionId),
       launchPermissionMode: async (record) =>
         (await structuredAgentSessionLaunchPermission(context.deps, record)) ?? undefined,
-      startOptions: (record) => structuredAgentSessionStartOptions(context.deps, record),
       ...(options.onAcquisitionFailed ? { onAcquisitionFailed: options.onAcquisitionFailed } : {}),
       openConversation: async (record) => {
         const conversation = await context.openConversation(record.sessionId, {

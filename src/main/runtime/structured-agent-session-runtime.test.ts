@@ -23,6 +23,10 @@ import {
   hasPersistedStructuredAgentSessionStore,
   stopStructuredAgentSessionRuntime
 } from './structured-agent-session-runtime'
+import { seedTestAgentSessionRecordStore } from './agent-session-record-store-test-harness'
+import { foundAgentSessionRecord } from './agent-session-record-founding'
+import { openTestJournalHostDatabase } from '../native-chat/agent-session-journal/journal-host-database-test-support'
+import { recordingStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger-test-support'
 import { createStructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 
 const HOST_ID = 'local'
@@ -219,6 +223,59 @@ describe('structured agent-session runtime install', () => {
     }
     vi.restoreAllMocks()
   })
+
+  it.each([false, true])(
+    'backfills before the host is readable and keeps startup nonfatal on a failed write (%s)',
+    async (failWrite) => {
+      stateDirectory = await mkdtemp(join(tmpdir(), 'orca-structured-runtime-backfill-'))
+      await seedTestAgentSessionRecordStore(stateDirectory, {
+        records: [
+          foundAgentSessionRecord(
+            {
+              sessionId: 'old-chat',
+              provider: 'codex',
+              location: {
+                executionHostId: HOST_ID,
+                workspaceId: 'folder-1',
+                workspaceKind: 'folder',
+                wslDistro: null
+              },
+              accountHome: { variable: 'CODEX_HOME', path: '/account' }
+            },
+            { claimKeyId: 'key-1', now: 1 }
+          )
+        ]
+      })
+      if (failWrite) {
+        openTestJournalHostDatabase(stateDirectory).db.exec(
+          "CREATE TRIGGER fail_permission_backfill BEFORE UPDATE ON agent_session_records BEGIN SELECT RAISE(ABORT, 'disk full'); END"
+        )
+      }
+      const logged = recordingStructuredAgentSessionLogger()
+      const host = await ensureStructuredAgentSessionHost({
+        logger: logged.logger,
+        stateDirectory,
+        hostId: HOST_ID,
+        claimKeyId: 'key-1',
+        initialChatPermissionMode: 'full-access',
+        resolveWorkspacePath: async () => stateDirectory!,
+        resolveLaunchArgs: () => [],
+        resolveClaudeAuthPolicy: () => ({ account: 'managed' }),
+        resolveEnvironment: async () => ({})
+      })
+      expect(host.deps.store.getRecord('old-chat')?.options?.permissionMode).toBe(
+        failWrite ? undefined : 'full-access'
+      )
+      expect((await host.readOptions('old-chat')).current.permissionMode).toBe(
+        failWrite ? 'ask' : 'full-access'
+      )
+      if (failWrite) {
+        expect(logged.scopes()).toContain('permission-mode-backfill')
+      } else {
+        expect(logged.scopes()).not.toContain('permission-mode-backfill')
+      }
+    }
+  )
 
   it('holds stop until the model catalog has written its coalesced save', async () => {
     stateDirectory = await mkdtemp(join(tmpdir(), 'orca-structured-runtime-'))

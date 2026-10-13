@@ -127,8 +127,8 @@ export type StructuredAgentSessionRuntimeDeps = {
   resolveAgentLaunchEnv?: (agent: string) => Record<string, string>
   /** The settings a per-agent Command override is read from, for the same agents. */
   resolveAgentCommandSettings?: () => StructuredAgentCommandSettings
-  /** Settings → Chat → Permissions, which a chat saved without a mode runs. */
-  resolveNewChatPermissionMode?: () => unknown
+  /** Host default captured at startup to backfill chats saved before permission modes. */
+  initialChatPermissionMode?: unknown
   resolveEnvironment?: () => Promise<NodeJS.ProcessEnv>
   /** Which login-shell variables Codex and Claude children inherit; absent inherits all. */
   resolveShellEnvironmentPolicy?: () => NativeChatShellEnvironmentPolicy
@@ -265,6 +265,15 @@ async function install(deps: StructuredAgentSessionRuntimeDeps): Promise<Install
     hostId: deps.hostId,
     logger
   })
+  try {
+    await recordStore.store.backfillChatPermissionModes(deps.initialChatPermissionMode)
+  } catch (error) {
+    // Missing choices safely run Ask; the next host start retries this pass.
+    logger.warn('saving existing chat permission choices failed', {
+      scope: 'permission-mode-backfill',
+      error
+    })
+  }
   return await installOnJournal({ ...deps, logger }, recordStore)
 }
 
@@ -318,9 +327,6 @@ async function installOnJournal(
     ...(deps.statusSink ? { statusSink: deps.statusSink } : {}),
     ...(deps.hasOpenDispatch ? { hasOpenDispatch: deps.hasOpenDispatch } : {}),
     ...(deps.onSessionTabHidden ? { onSessionTabHidden: deps.onSessionTabHidden } : {}),
-    ...(deps.resolveNewChatPermissionMode
-      ? { newChatPermissionMode: deps.resolveNewChatPermissionMode }
-      : {}),
     ...(await modelCatalogHostDeps({
       store,
       agents,
