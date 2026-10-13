@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { pasteDraftToAgentPtyWhenReady, pasteDraftWhenAgentReady } from './agent-paste-draft'
 
-const testState = vi.hoisted(() => ({
-  waitForReady: vi.fn(),
-  inspectProcess: vi.fn(),
-  sendInput: vi.fn(),
-  ptyIdsByTabId: { 'tab-1': ['pty-1'] } as Record<string, string[]>,
-  listeners: new Set<(state: unknown) => void>()
-}))
+const testState = vi.hoisted(() => {
+  const ptyIdsByTabId: Record<string, string[]> = { 'tab-1': ['pty-1'] }
+  return {
+    waitForReady: vi.fn(),
+    inspectProcess: vi.fn(),
+    sendInput: vi.fn(),
+    ptyIdsByTabId,
+    listeners: new Set<(state: unknown) => void>()
+  }
+})
 
 function storeState() {
   return { settings: {}, tabsByWorktree: {}, ptyIdsByTabId: testState.ptyIdsByTabId }
