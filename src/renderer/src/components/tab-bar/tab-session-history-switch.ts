@@ -20,6 +20,7 @@ import {
 } from '../../../../shared/execution-host'
 import {
   adoptsCliConversations,
+  CLI_CONVERSATION_ADOPTING_AGENTS,
   type CliConversationRowAgent
 } from '../../../../shared/structured-agent-cli-conversation-adoption'
 import { agentForksConversations } from '../../../../shared/agent-resume-argv'
@@ -173,7 +174,13 @@ export function findTabSessionHistoryRow(
         return session.structuredSession?.sessionId === subject.sessionId
       }
       // A chat-owned row still matches: the move's gate refuses it, and the caller can open that chat.
-      return session.agent === subject.agent && session.sessionId === subject.providerSessionId
+      // By the chat agent that takes it over: an OpenCode 2.x pane reports `opencode`, its row `opencode2`.
+      return (
+        adoptsCliConversations(session.agent) &&
+        CLI_CONVERSATION_ADOPTING_AGENTS[session.agent] ===
+          CLI_CONVERSATION_ADOPTING_AGENTS[subject.agent] &&
+        session.sessionId === subject.providerSessionId
+      )
     }) ?? null
   )
 }
