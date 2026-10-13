@@ -25,6 +25,7 @@ import { findWorkspaceReferences } from './runtime-reference-find'
 import { createReferenceAgentIndex, referenceConnectionHosts } from './runtime-reference-agents'
 import type { RuntimeReferenceFindParams } from '../../shared/runtime-reference-contracts'
 import { getRepoExecutionHostId } from '../../shared/execution-host'
+import type { TerminalCreateOptions } from './runtime-terminal-contracts'
 
 class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
   private async selectReferenceCatalogWorkspace(selector: string, cwd?: string) {
@@ -127,6 +128,16 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
   /** A client that can call `agent.launch` connected; its first launch should not open the record. */
   noteAgentLaunchClientReady(): void {
     this.agentLaunchRecordWarmup.launchClientReady()
+  }
+
+  /** Plans an agent launch a window pane's own spawn asks for, with the planner every host launch
+   *  uses; the spawn resolves Qoder's executable itself, for the shell it really runs. */
+  async planAgentPaneLaunch(
+    worktreeId: string,
+    opts: TerminalCreateOptions
+  ): Promise<TerminalCreateOptions> {
+    const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
+    return this.buildAgentTerminalCreateOptions(workspace, opts)
   }
 
   /** Whether a running process holds this pane now: such a pane is attached to, never launched into. */

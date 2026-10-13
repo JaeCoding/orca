@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HostAgentLaunchOutcome } from './agent-launch-through-host'
 
 const host = vi.hoisted(() => ({
   launchAgentThroughHost: vi.fn(),
@@ -13,18 +12,16 @@ const pasteAgentLaunchPromptOnceReady = vi.hoisted(() =>
   }))
 )
 vi.mock('@/lib/launch-agent-tab-prompt-paste', () => ({ pasteAgentLaunchPromptOnceReady }))
-const toast = vi.hoisted(() => ({ error: vi.fn() }))
-vi.mock('sonner', () => ({ toast }))
 
 const { launchNewTabPromptThroughHost, newTabPromptLaunchesThroughHost } =
   await import('./launch-agent-new-tab-host-route')
 
 const TAB = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
 
-function deferredOutcome() {
-  let resolve!: (outcome: HostAgentLaunchOutcome) => void
-  const promise = new Promise<HostAgentLaunchOutcome>((done) => (resolve = done))
-  host.launchAgentThroughHost.mockReturnValue({ tabId: TAB, outcome: promise })
+function deferredStart() {
+  let resolve!: (started: boolean) => void
+  const started = new Promise<boolean>((done) => (resolve = done))
+  host.launchAgentThroughHost.mockReturnValue({ tabId: TAB, started })
   return resolve
 }
 
@@ -43,7 +40,7 @@ beforeEach(() => {
   host.windowMakesHostLaunchTab.mockReturnValue(true)
 })
 
-describe('an AI button launched through the host', () => {
+describe('an AI button launched in its own pane', () => {
   function sendGate(): Promise<boolean> {
     const gate = pasteAgentLaunchPromptOnceReady.mock.calls.at(-1)?.[0].sendGate
     if (!gate) {
@@ -53,9 +50,9 @@ describe('an AI button launched through the host', () => {
   }
 
   // Why: readiness is watched from the tab's first output, as main watches it, but the paste must
-  // meet the host's agent, never a shell this window spawned first.
-  it('watches for readiness at once but writes only once the host has its agent in the tab', async () => {
-    const answer = deferredOutcome()
+  // meet the agent its pane started, never a pane whose launch failed.
+  it("watches for readiness at once but writes only once its pane's spawn started the agent", async () => {
+    const answer = deferredStart()
     const { tabId, promptDeliveryResult } = launch()
     expect(pasteAgentLaunchPromptOnceReady).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ tabId, worktreeId: 'wt-1', submit: true })
@@ -65,52 +62,64 @@ describe('an AI button launched through the host', () => {
     await Promise.resolve()
     expect(gateOpen).toBeUndefined()
 
-    answer({ kind: 'started' })
+    answer(true)
 
     await expect(sendGate()).resolves.toBe(true)
     await expect(promptDeliveryResult).resolves.toEqual({ delivered: true, failureNotified: false })
     expect(tabId).toBe(TAB)
   })
 
-  it('never pastes for a launch refused before the agent ran, and says so once', async () => {
-    deferredOutcome()({ kind: 'not-started', unconfirmed: false, code: 'worktree_not_found' })
-
+  it('never pastes for a launch that did not start, whose pane or notice already said why', async () => {
+    deferredStart()(false)
     await expect(launch().promptDeliveryResult).resolves.toEqual({
       delivered: false,
       failureNotified: true
     })
     await expect(sendGate()).resolves.toBe(false)
-    expect(toast.error).toHaveBeenCalledOnce()
-  })
-
-  it('says nothing and pastes nothing when the user closed the tab', async () => {
-    deferredOutcome()({ kind: 'closed-by-user' })
-    await expect(launch().promptDeliveryResult).resolves.toEqual({
-      delivered: false,
-      failureNotified: true
-    })
-    await expect(sendGate()).resolves.toBe(false)
-    expect(toast.error).not.toHaveBeenCalled()
   })
 })
 
 describe('which new agent tabs start through the host', () => {
   it('an AI button whose prompt is pasted once ready, in a terminal this window makes', () => {
     expect(
-      newTabPromptLaunchesThroughHost({ promptDelivery: 'submit-after-ready', pastesPrompt: true })
+      newTabPromptLaunchesThroughHost({
+        promptDelivery: 'submit-after-ready',
+        pastesPrompt: true,
+        isRemote: false
+      })
     ).toBe(true)
   })
 
   it('never a typed prompt, nor a launch the host could turn into a chat', () => {
     expect(
-      newTabPromptLaunchesThroughHost({ promptDelivery: 'auto-submit', pastesPrompt: true })
+      newTabPromptLaunchesThroughHost({
+        promptDelivery: 'auto-submit',
+        pastesPrompt: true,
+        isRemote: false
+      })
     ).toBe(false)
-    expect(newTabPromptLaunchesThroughHost({ promptDelivery: 'draft', pastesPrompt: true })).toBe(
-      false
-    )
+    expect(
+      newTabPromptLaunchesThroughHost({
+        promptDelivery: 'draft',
+        pastesPrompt: true,
+        isRemote: false
+      })
+    ).toBe(false)
+    // A workspace that runs over SSH: the pane's local spawn cannot start it.
+    expect(
+      newTabPromptLaunchesThroughHost({
+        promptDelivery: 'submit-after-ready',
+        pastesPrompt: true,
+        isRemote: true
+      })
+    ).toBe(false)
     host.windowMakesHostLaunchTab.mockReturnValue(false)
     expect(
-      newTabPromptLaunchesThroughHost({ promptDelivery: 'submit-after-ready', pastesPrompt: true })
+      newTabPromptLaunchesThroughHost({
+        promptDelivery: 'submit-after-ready',
+        pastesPrompt: true,
+        isRemote: false
+      })
     ).toBe(false)
   })
 })

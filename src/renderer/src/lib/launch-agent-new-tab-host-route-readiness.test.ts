@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HostAgentLaunchOutcome } from './agent-launch-through-host'
 
 const TAB = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
 
@@ -89,10 +88,10 @@ describe('an AI button whose agent is ready before the host answers', () => {
   // Regression: the paste watched the terminal only after the host's reply, so an agent that had
   // already enabled bracketed paste was never seen ready and its prompt waited out the budget.
   it('is pasted at its own ready signal plus the quiet window, not after the timeout', async () => {
-    let answer!: (outcome: HostAgentLaunchOutcome) => void
+    let answer!: (started: boolean) => void
     testState.launchAgentThroughHost.mockReturnValue({
       tabId: TAB,
-      outcome: new Promise<HostAgentLaunchOutcome>((done) => (answer = done))
+      started: new Promise<boolean>((done) => (answer = done))
     })
     const onPromptDeliveryUnconfirmed = vi.fn()
     const { promptDeliveryResult } = launchNewTabPromptThroughHost({
@@ -112,7 +111,7 @@ describe('an AI button whose agent is ready before the host answers', () => {
     expect(testState.writes).toEqual([])
     expect(testState.appState.seedNativeChatLaunchPrompt).not.toHaveBeenCalled()
 
-    answer({ kind: 'started' })
+    answer(true)
     await vi.advanceTimersByTimeAsync(1200)
     expect(testState.writes).toEqual([])
 
@@ -129,11 +128,11 @@ describe('an AI button whose agent is ready before the host answers', () => {
     expect(onPromptDeliveryUnconfirmed).not.toHaveBeenCalled()
   })
 
-  it('writes nothing, and seeds no chat copy, when the host says its agent did not start', async () => {
-    let answer!: (outcome: HostAgentLaunchOutcome) => void
+  it('writes nothing, and seeds no chat copy, when its pane says the agent did not start', async () => {
+    let answer!: (started: boolean) => void
     testState.launchAgentThroughHost.mockReturnValue({
       tabId: TAB,
-      outcome: new Promise<HostAgentLaunchOutcome>((done) => (answer = done))
+      started: new Promise<boolean>((done) => (answer = done))
     })
     const { promptDeliveryResult } = launchNewTabPromptThroughHost({
       agent: 'claude',
@@ -145,7 +144,7 @@ describe('an AI button whose agent is ready before the host answers', () => {
 
     attachHostPty('pty-1')
     testState.ptyWatchers.get('pty-1')?.('\x1b[?2004h> ')
-    answer({ kind: 'not-started', unconfirmed: true })
+    answer(false)
     await vi.advanceTimersByTimeAsync(10_000)
 
     await expect(promptDeliveryResult).resolves.toEqual({ delivered: false, failureNotified: true })
