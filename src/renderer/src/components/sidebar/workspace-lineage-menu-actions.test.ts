@@ -134,7 +134,7 @@ describe('hasSleepableWorkspaceActivity', () => {
     ).toBe(true)
   })
 
-  it('offers Sleep for a chat-only workspace', () => {
+  it('offers Sleep for a chat-only workspace until the chat is slept', () => {
     const chat: Tab = {
       id: 'chat-1',
       entityId: 'session-1',
@@ -148,13 +148,13 @@ describe('hasSleepableWorkspaceActivity', () => {
       sortOrder: 0,
       createdAt: 0
     }
-    expect(
-      hasSleepableWorkspaceActivity('wt-1', {
-        tabsByWorktree: {},
-        ptyIdsByTabId: {},
-        browserTabsByWorktree: {},
-        unifiedTabsByWorktree: { 'wt-1': [chat] }
-      })
-    ).toBe(true)
+    const activity = (tab: Tab) => ({
+      tabsByWorktree: {},
+      ptyIdsByTabId: {},
+      browserTabsByWorktree: {},
+      unifiedTabsByWorktree: { 'wt-1': [tab] }
+    })
+    expect(hasSleepableWorkspaceActivity('wt-1', activity(chat))).toBe(true)
+    expect(hasSleepableWorkspaceActivity('wt-1', activity({ ...chat, sleptAt: 1 }))).toBe(false)
   })
 })

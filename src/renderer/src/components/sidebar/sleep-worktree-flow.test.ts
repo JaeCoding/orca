@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
     suppressPtyExit: ReturnType<typeof vi.fn>
     consumeSuppressedPtyExit: ReturnType<typeof vi.fn>
     unifiedTabsByWorktree: Record<string, Record<string, unknown>[]>
+    setWorkspaceChatsSleptAt: ReturnType<typeof vi.fn>
     tabsByWorktree: Record<string, { id: string }[]>
     ptyIdsByTabId: Record<string, string[]>
   } = {
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => {
     suppressPtyExit: vi.fn(),
     consumeSuppressedPtyExit: vi.fn(),
     unifiedTabsByWorktree: {},
+    setWorkspaceChatsSleptAt: vi.fn(),
     tabsByWorktree: {} as Record<string, { id: string }[]>,
     ptyIdsByTabId: {} as Record<string, string[]>
   }
@@ -86,6 +88,7 @@ describe('runSleepWorktree', () => {
     mocks.state.tabsByWorktree = {}
     mocks.state.ptyIdsByTabId = {}
     mocks.state.unifiedTabsByWorktree = {}
+    mocks.state.setWorkspaceChatsSleptAt.mockClear()
     mocks.sleepChat.mockClear().mockResolvedValue(undefined)
   })
 
@@ -97,12 +100,13 @@ describe('runSleepWorktree', () => {
     agentSessionAgent: 'claude'
   }
 
-  it("stops a workspace's chat agents", async () => {
+  it("stops a workspace's chat agents and marks the chats slept", async () => {
     mocks.state.unifiedTabsByWorktree = { 'wt-1': [chatTab] }
 
     await runSleepWorktree('wt-1')
 
     expect(mocks.sleepChat).toHaveBeenCalledWith({ kind: 'local' }, 'session-1')
+    expect(mocks.state.setWorkspaceChatsSleptAt).toHaveBeenCalledWith('wt-1', expect.any(Number))
     expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
@@ -112,6 +116,7 @@ describe('runSleepWorktree', () => {
 
     await runSleepWorktree('wt-1')
 
+    expect(mocks.state.setWorkspaceChatsSleptAt).not.toHaveBeenCalled()
     expect(mocks.clearWorktreeSleepIntent).toHaveBeenCalledWith('wt-1')
     expect(mocks.toastError).toHaveBeenCalledWith(
       'Failed to sleep workspace',

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
       }
     }),
     unifiedTabsByWorktree: {},
+    setWorkspaceChatsSleptAt: vi.fn(),
     tabsByWorktree: {} as Record<string, { id: string }[]>,
     ptyIdsByTabId: {} as Record<string, string[]>
   }

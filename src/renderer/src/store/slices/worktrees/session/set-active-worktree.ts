@@ -25,6 +25,7 @@ import {
 import { persistPassiveWorktreeMetaForOwner } from '../listing/worktree-owner-settings'
 import { resolveActivatedWorktreeSurface } from './active-worktree-surface'
 import { clearWorktreeSleepIntent } from '@/lib/worktree-sleep-intent'
+import { withWorkspaceChatsSleptAt } from '../../tabs/tabs-chat-sleep-actions'
 import {
   pendingActivationTerminalPrepCancels,
   shouldDeferActivationTerminalPrep
@@ -158,6 +159,12 @@ export function createSetActiveWorktree(
               }
             }
           : {}
+      // Why: any activation wakes the workspace's chats, as it does its terminals.
+      const nextUnifiedTabs = withWorkspaceChatsSleptAt(
+        s.unifiedTabsByWorktree,
+        worktreeId,
+        undefined
+      )
 
       const nextActiveTabTypeByWorktree =
         s.activeTabTypeByWorktree[worktreeId] === activeTabType
@@ -179,6 +186,7 @@ export function createSetActiveWorktree(
         nextDetectedWorktrees !== s.detectedWorktreesByRepo ||
         nextFolderWorkspaces !== s.folderWorkspaces ||
         nextActiveRepoId !== s.activeRepoId ||
+        nextUnifiedTabs !== s.unifiedTabsByWorktree ||
         allDead ||
         reconciliationChanged ||
         stateTransition !== undefined
@@ -211,7 +219,10 @@ export function createSetActiveWorktree(
         ...(nextFolderWorkspaces !== s.folderWorkspaces
           ? { folderWorkspaces: nextFolderWorkspaces }
           : {}),
-        ...tabsByWorktreeUpdate
+        ...tabsByWorktreeUpdate,
+        ...(nextUnifiedTabs !== s.unifiedTabsByWorktree
+          ? { unifiedTabsByWorktree: nextUnifiedTabs }
+          : {})
       }
     })
 

@@ -151,6 +151,7 @@ export async function runSleepWorktrees(worktreeIds: readonly string[]): Promise
   const {
     activeWorktreeId,
     setActiveWorktree,
+    setWorkspaceChatsSleptAt,
     shutdownWorktreeBrowsers,
     shutdownWorktreeTerminals
   } = state
@@ -209,6 +210,8 @@ export async function runSleepWorktrees(worktreeIds: readonly string[]): Promise
         // Why: a workspace the user activated during the batch is awake by their choice.
         if (useAppStore.getState().activeWorktreeId === worktreeId) {
           clearWorktreeSleepIntent(worktreeId)
+        } else {
+          setWorkspaceChatsSleptAt(worktreeId, Date.now())
         }
       } catch (err) {
         console.error('[sleep-worktree] terminal or host suspension failed', {
