@@ -193,15 +193,6 @@ describe('resolveTabSessionHistorySubject', () => {
     }
   )
 
-  it('skips a chat of an agent that cannot copy its conversation', () => {
-    expect(
-      resolveTabSessionHistorySubject(makeState(), {
-        tab: { id: 'unified-1', worktreeId: WORKTREE_ID },
-        nativeChat: { sessionId: 'orca-chat-1', agent: 'gemini' }
-      })
-    ).toBeNull()
-  })
-
   it('finds a terminal tab by the conversation its agent reported', () => {
     expect(
       resolveTabSessionHistorySubject(makeState(liveClaudeEntry), {

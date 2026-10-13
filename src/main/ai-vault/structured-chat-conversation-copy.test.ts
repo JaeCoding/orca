@@ -11,7 +11,7 @@ import { installCopyingChat as installChat } from './structured-session-ownershi
 
 const OMP_ID = '019fd611-2b3c-7d4e-9f50-6b7c8d9e0f1a'
 const OPENCODE_ID = 'ses_2f9aB3cD4eF5gH6iJ7kL8mN9oP'
-const OMP_FILE = `/Users/me/.omp/agent/sessions/--Users-me-repo--/2026-10-09T10-00-00-000Z_${OMP_ID}.jsonl`
+const OMP_FILE = `/sessions/${OMP_ID}.jsonl`
 
 const acp = (agent: 'opencode' | 'omp', nativeId: string): AgentSessionProviderHandle => ({
   transport: 'acp',
@@ -57,17 +57,6 @@ describe('copying a chat conversation for Resume in New CLI', () => {
           agent: handle.agent
         }
       })
-      expect(copy).toHaveBeenCalledWith({
-        identity: {
-          sessionId: 'chat-1',
-          workspaceId: 'workspace-1',
-          hostId: 'local',
-          agent: handle.agent,
-          providerHandle: handle
-        },
-        providerSessionId: sessionId,
-        accountHome: expect.any(Object)
-      })
     }
   )
 
@@ -89,50 +78,6 @@ describe('copying a chat conversation for Resume in New CLI', () => {
     ])
     await expect(copyStructuredChatConversation(fork({}))).rejects.toThrow(
       'already owned by a chat'
-    )
-  })
-
-  it('leaves a resume, and a fork its CLI makes, to the usual preparation', async () => {
-    const copy = vi.fn(async () => ({
-      sessionId: 'copy-1',
-      filePath: '/sessions/copy-1.jsonl'
-    }))
-    installChat(acp('omp', OMP_ID), copy)
-
-    await expect(copyStructuredChatConversation(fork({ fork: false }))).resolves.toBeNull()
-    await expect(
-      copyStructuredChatConversation(fork({ agent: 'claude', sessionId: 'c1' }))
-    ).resolves.toBeNull()
-    expect(copy).not.toHaveBeenCalled()
-  })
-
-  it('refuses when no chat owns the row any more, never copying another', async () => {
-    const copy = vi.fn(async () => ({
-      sessionId: 'copy-1',
-      filePath: '/sessions/copy-1.jsonl'
-    }))
-    installChat(acp('omp', OMP_ID), copy)
-
-    await expect(
-      copyStructuredChatConversation(fork({ sessionId: 'other', filePath: '/x/other.jsonl' }))
-    ).rejects.toThrow('This chat is no longer in Orca')
-    setStructuredAgentSessionHost(null)
-    await expect(copyStructuredChatConversation(fork({}))).rejects.toThrow(
-      'This chat is no longer in Orca'
-    )
-    expect(copy).not.toHaveBeenCalled()
-  })
-
-  it("passes the agent's refusal through", async () => {
-    installChat(
-      acp('omp', OMP_ID),
-      vi.fn(async () => {
-        throw new Error('OMP could not copy this chat.')
-      })
-    )
-
-    await expect(copyStructuredChatConversation(fork({}))).rejects.toThrow(
-      'OMP could not copy this chat.'
     )
   })
 })

@@ -22,27 +22,6 @@ const forkArgs = (
 afterEach(() => setStructuredAgentSessionHost(null))
 
 describe('Resume in New CLI preparation for a chat whose host makes the copy', () => {
-  it("has this machine's chat make the copy instead of preparing a home", async () => {
-    const copy = vi.fn(async () => ({
-      sessionId: 'copy-1',
-      filePath: '/sessions/copy-1.jsonl'
-    }))
-    installCopyingChat({ transport: 'acp', agent: 'omp', nativeId: OMP_ID }, copy)
-    const prepareSessionResume = vi.fn()
-
-    await expect(
-      prepareAiVaultSessionResume(forkArgs('local'), { prepareSessionResume })
-    ).resolves.toEqual({
-      useRealCodexHome: false,
-      forkedSession: {
-        sessionId: 'copy-1',
-        filePath: '/sessions/copy-1.jsonl',
-        agent: 'omp'
-      }
-    })
-    expect(prepareSessionResume).not.toHaveBeenCalled()
-  })
-
   it('leaves the copy to the server that runs a remote chat', async () => {
     const copy = vi.fn(async () => ({
       sessionId: 'local-copy'

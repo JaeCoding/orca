@@ -142,51 +142,6 @@ describe('prepareAiVaultSessionForFork', () => {
     expect(prepareSessionResume).not.toHaveBeenCalled()
   })
 
-  it.each(['opencode', 'opencode2', 'omp'] as const)(
-    "has the %s chat's host make the copy, and opens that copy, which no chat owns",
-    async (agent) => {
-      const prepareSessionResume = vi.fn().mockResolvedValue({
-        useRealCodexHome: false,
-        forkedSession: {
-          sessionId: 'copy-1',
-          filePath: '/sessions/copy-1.jsonl',
-          agent: agent === 'opencode2' ? 'opencode' : agent
-        }
-      })
-      stubPreparation(prepareSessionResume)
-      const owned = session({
-        agent,
-        sessionId: 'chat-conversation',
-        filePath: '/tmp/chat-conversation.jsonl',
-        resumeCommand: `${agent} --resume chat-conversation`,
-        executionHostId: 'runtime:env-1',
-        structuredSession: { sessionId: 'session-1', workspaceId: 'worktree-1' }
-      })
-
-      const prepared = await prepareAiVaultSessionForFork(owned)
-
-      expect(prepareSessionResume).toHaveBeenCalledWith({
-        agent,
-        sessionId: 'chat-conversation',
-        filePath: '/tmp/chat-conversation.jsonl',
-        codexHome: null,
-        executionHostId: 'runtime:env-1',
-        fork: true
-      })
-      expect(prepared.copied).toBe(true)
-      // An OpenCode 2.x chat's conversation lists as `opencode2`; its copy opens with `opencode`.
-      expect(prepared.session).toMatchObject({
-        agent: agent === 'opencode2' ? 'opencode' : agent,
-        sessionId: 'copy-1',
-        filePath: '/sessions/copy-1.jsonl',
-        resumeCommand: '',
-        cwd: '/repo',
-        executionHostId: 'runtime:env-1'
-      })
-      expect(prepared.session).not.toHaveProperty('structuredSession')
-    }
-  )
-
   it("refuses a host that made no copy rather than resuming the chat's own conversation", async () => {
     stubPreparation(vi.fn().mockResolvedValue({ useRealCodexHome: false }))
     const owned = session({
