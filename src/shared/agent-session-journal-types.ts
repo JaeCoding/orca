@@ -517,8 +517,8 @@ export type AgentJournalSubmission = {
    *  card, so no surface draws this send, before or after the card is sent, edited or deleted.
    *  Recorded in the rejection's own transaction (`journal-unsent-send-hold.ts`). */
   keptAsQueuedMessageId?: string
-  /** Host-only: the model and effort the person's composer sent it with, applied when it is
-   *  handed over. No client reads it. */
+  /** The model and effort the person's composer sent it with, applied when it is handed over.
+   *  The host's alone: clients ignore it. */
   options?: Readonly<Record<string, string>>
 }
 
