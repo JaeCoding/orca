@@ -27,7 +27,6 @@ import type { AcpStructuredConnection } from './acp-structured-connection'
 import { ACP_HANDLE_TRANSPORT, acpAgentName } from './acp-structured-agent-definitions'
 import { AcpStructuredLane, acpLaneChildWorkDelivery } from './acp-structured-lane'
 import { NO_ACP_CHILD_STOPS, probeAcpChildStops } from './acp-structured-child-stop'
-import type { AcpStructuredLaunch } from './acp-structured-launch-resolution'
 import { AcpStructuredOptions, restoreAcpSessionOptions } from './acp-structured-options'
 import { AcpStructuredPrompts } from './acp-structured-prompts'
 import {
@@ -77,7 +76,7 @@ export async function acquireAcpStructuredSession(input: {
     }
   }
   closedBeforeSpawn()
-  const launch: AcpStructuredLaunch = await deps
+  const launch = await deps
     .resolveLaunch({ identity: acquire.identity, spawnToken: acquire.spawnToken })
     .catch((error: unknown) => {
       throw new AgentSessionPreSpawnError(error)
@@ -262,11 +261,12 @@ export async function acquireAcpStructuredSession(input: {
     const mode = spec.permissionModeConfig
     if (mode) {
       // Unlike a saved pick, a refusal fails the start: the session would run another posture.
-      const set = await connection.setConfigOption(
-        mode.configId,
-        launch.fullAccess ? mode.full : mode.ask
-      )
-      options.adoptConfigOptions(set.configOptions)
+      const requested = launch.fullAccess ? mode.full : mode.ask
+      const { configOptions } = await connection.setConfigOption(mode.configId, requested)
+      if (configOptions.find((option) => option.id === mode.configId)?.currentValue !== requested) {
+        throw new Error('Permission mode could not be confirmed')
+      }
+      options.adoptConfigOptions(configOptions)
     }
     const process = await identity.read(pid)
     const link: AgentSessionProviderHandleLink = {
