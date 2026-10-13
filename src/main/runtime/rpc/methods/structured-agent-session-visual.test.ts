@@ -108,7 +108,7 @@ describe('agentSession.readVisual', () => {
     await writeFile(join(foreign, 'x.html'), 'x')
     await symlink(foreign, join(folder, 'out'), 'junction')
     const path = join(folder, 'chart.html')
-    const readVisual = (params: object) =>
+    const readVisual = (params: { knownRevision?: string }) =>
       call(
         'agentSession.readVisual',
         { sessionId: SESSION, file: 'chart.html', ...params },
