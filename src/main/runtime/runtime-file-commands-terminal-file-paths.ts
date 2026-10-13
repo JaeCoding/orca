@@ -2,7 +2,7 @@
 import { open, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
 import type { Store } from '../persistence'
-import { resolveAuthorizedPath } from '../ipc/filesystem-auth'
+import { resolveRuntimeAuthorizedPath } from './runtime-chat-scratch-file-root'
 import type { TerminalFileGrant } from './runtime-file-commands-mobile-file-list-limit'
 import {
   LOCAL_PREVIEWABLE_BINARY_MAX_BYTES,
@@ -30,7 +30,7 @@ import {
 import { parseWslPath, toWindowsWslPath } from '../wsl'
 
 export async function readLocalMobileFile(filePath: string, store: Store): Promise<string> {
-  const authorizedPath = await resolveAuthorizedPath(filePath, store)
+  const authorizedPath = await resolveRuntimeAuthorizedPath(filePath, store)
   const fileStat = await stat(authorizedPath)
   // Why: cap the read so opening a large file can't block the WebSocket (previews are read-only convenience views).
   const readLimit = Math.min(fileStat.size, MOBILE_FILE_READ_MAX_BYTES + 1)

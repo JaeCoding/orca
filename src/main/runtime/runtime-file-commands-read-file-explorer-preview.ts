@@ -16,7 +16,7 @@ import {
   requireRuntimeFileProvider
 } from './runtime-file-command-target'
 import { readLocalFileRange } from '../ipc/filesystem/local-file-range-read'
-import { resolveAuthorizedPath } from '../ipc/filesystem-auth'
+import { resolveRuntimeAuthorizedPath } from './runtime-chat-scratch-file-root'
 import { extname } from 'node:path'
 import {
   NodeFileReadTooLargeError,
@@ -41,7 +41,7 @@ export class RuntimeFileCommandsWithReadFileExplorerPreview extends RuntimeFileC
     const target = await this.resolveFileExplorerPath(worktreeSelector, relativePath)
     requireLocalRuntimeFileRoute(target)
     // Why: sized by extension instead of a stat round trip.
-    const filePath = await resolveAuthorizedPath(target.path, this.host.requireStore())
+    const filePath = await resolveRuntimeAuthorizedPath(target.path, this.host.requireStore())
     const mimeType = RUNTIME_PREVIEWABLE_BINARY_MIME_TYPES[extname(filePath).toLowerCase()]
     const maxBytes = mimeType ? binaryMaxBytes : MOBILE_FILE_READ_MAX_BYTES
     let buffer: Buffer
@@ -126,7 +126,7 @@ export class RuntimeFileCommandsWithReadFileExplorerPreview extends RuntimeFileC
   ): Promise<RuntimeFileReadChunkResult> {
     const target = await this.resolveFileExplorerPath(worktreeSelector, relativePath)
     requireLocalRuntimeFileRoute(target)
-    const filePath = await resolveAuthorizedPath(target.path, this.host.requireStore())
+    const filePath = await resolveRuntimeAuthorizedPath(target.path, this.host.requireStore())
     return readLocalFileRange(filePath, offset, length)
   }
 }

@@ -21,13 +21,28 @@ import { ClientHostedBrowserRowPublisher } from './client-hosted-browser-row-pub
 import { getRuntimeBrowserPageRegistry } from './runtime-browser-page-registry'
 import { getBrowserHostLeaseRegistry } from './browser-host-lease-registry-instance'
 import type { RuntimeLeafRecord } from './runtime-terminal-state-records'
+import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
+import {
+  isChatScratchWorktreeId,
+  resolveChatScratchSelectorFolder
+} from './runtime-chat-scratch-file-root'
 
 export class OrcaRuntimeWithFileCommands extends OrcaRuntimeWithPreservedBranchCleanup {
   protected readonly fileCommands = new RuntimeFileCommands({
     getRuntimeId: () => this.runtimeId,
     requireStore: () => this.requireStore(),
     resolveWorktreeSelector: (selector) => this.resolveWorktreeSelector(selector),
-    resolveRuntimeFileTarget: (selector) => this.resolveRuntimeFileTarget(selector),
+    resolveRuntimeFileTarget: async (selector) => {
+      // Why here, not in the general resolver: that one also places new chats, and a scratch folder
+      // must never become a chat's workspace.
+      const scratchFolder = await resolveChatScratchSelectorFolder(selector)
+      return scratchFolder
+        ? {
+            worktree: { ...this.floatingWorkspaceToResolvedWorktree(scratchFolder), id: selector },
+            executionHostId: LOCAL_EXECUTION_HOST_ID
+          }
+        : this.resolveRuntimeFileTarget(selector)
+    },
     resolveKnownWorkspaceFileTarget: (absolutePath, executionHostId) =>
       this.resolveKnownWorkspaceFileTarget(absolutePath, executionHostId),
     resolveTerminalCwd: (terminalHandle) => this.resolveTerminalCwd(terminalHandle),
@@ -45,12 +60,19 @@ export class OrcaRuntimeWithFileCommands extends OrcaRuntimeWithPreservedBranchC
       }),
     resolveRuntimeGitTarget: (selector) => this.resolveRuntimeGitTarget(selector),
     openFile: (worktreeId, filePath, relativePath, runtimeEnvironmentId, navigation) => {
+      // The UI cannot open a tab in a workspace that has no row.
+      if (isChatScratchWorktreeId(worktreeId)) {
+        throw new Error('chat_scratch_not_openable')
+      }
       if (!this.notifier?.openFile) {
         throw new Error('renderer_unavailable')
       }
       this.notifier.openFile(worktreeId, filePath, relativePath, runtimeEnvironmentId, navigation)
     },
     openDiff: (worktreeId, filePath, relativePath, staged, runtimeEnvironmentId, navigation) => {
+      if (isChatScratchWorktreeId(worktreeId)) {
+        throw new Error('chat_scratch_not_openable')
+      }
       if (!this.notifier?.openDiff) {
         throw new Error('renderer_unavailable')
       }

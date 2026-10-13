@@ -4,7 +4,7 @@ import {
   ExecutionHostNotDispatchableError,
   resolveFilesystemRouteForHost
 } from '../providers/execution-host-provider-dispatch'
-import { resolveAuthorizedPath } from '../ipc/filesystem-auth'
+import { resolveRuntimeAuthorizedPath } from './runtime-chat-scratch-file-root'
 import type {
   createLocalFilesystemProvider,
   LocalFilesystemProvider,
@@ -62,7 +62,7 @@ export function runtimeFileRouteForTarget(target: {
   }
 }
 
-/** What a runtime command supplies for local work; path authorization is always the store's. */
+/** What a runtime command supplies for local work; path authorization is always the runtime's. */
 export type RuntimeLocalFileHost = Omit<LocalFilesystemProviderOptions, 'resolveAuthorizedPath'>
 
 /** The local route for work this process runs itself; `ssh:` and `runtime:` hosts throw. */
@@ -83,7 +83,7 @@ export function requireRuntimeFileProvider(
 ): LocalFilesystemProvider {
   return requireLocalRuntimeFileRoute(target).createProvider({
     requireStore: () => host.requireStore(),
-    resolveAuthorizedPath
+    resolveAuthorizedPath: resolveRuntimeAuthorizedPath
   })
 }
 
