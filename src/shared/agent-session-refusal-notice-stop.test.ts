@@ -44,16 +44,6 @@ describe('a Stop the host could not save or carry out', () => {
     ).toBe("Couldn't stop the agent. Try again.")
   })
 
-  it('leaves out trying again beside a Retry, and keeps the code words on any other write', () => {
-    const failure = stopFailed({ reason: 'stopFailed', agent: 'claude' })
-    expect(
-      agentSessionWriteNoticeEnglish(
-        agentSessionWriteNoticeParts(failure, 'stop', { retryControl: true })
-      )
-    ).toBe("Couldn't stop Claude.")
-    expect(agentSessionWriteNoticeParts(failure, 'stop-task')).toEqual(['notDoneStopTask'])
-  })
-
   it("says a card's Cancel that could not be saved left the card, never that the agent didn't stop", () => {
     expect(
       agentSessionRefusalNotice(

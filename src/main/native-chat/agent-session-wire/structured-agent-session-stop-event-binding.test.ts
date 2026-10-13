@@ -14,6 +14,7 @@ import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
 import type { JournalStopEvent } from '../agent-session-journal/journal-row-schema'
 import { JournalStopAcceptor } from '../agent-session-journal/journal-stop-acceptance'
 import { structuredAgentSessionStopping } from './structured-agent-session-stopping'
+import { structuredAgentSessionNamedTurnScope } from './structured-agent-session-turn-stop-notes'
 import { settleStaleStructuredAgentSessionState } from './structured-agent-session-dead-generation-settlement'
 import { HOST_TEST_SESSION, hostTestOperationId } from './structured-agent-session-host-test-data'
 import {
@@ -254,6 +255,11 @@ describe('a Stop naming no turn binds the turn live as its event is written', ()
     held.mockRestore()
     expect(stopEvents()).toEqual([expect.objectContaining({ turnId: 'turn-later' })])
     expect(rig.cancelTurn).toHaveBeenCalledOnce()
+    // Its note is keyed by that turn too.
+    const note = journal()
+      .snapshot()
+      .items.find((item) => item.body.kind === 'status')
+    expect(note?.turnScope).toEqual(structuredAgentSessionNamedTurnScope(journal(), 'turn-later'))
     const snapshot = await rig.host.journalSnapshot(HOST_TEST_SESSION)
     expect(structuredAgentSessionStopping(journal(), snapshot.items, journal().submissions())).toBe(
       true

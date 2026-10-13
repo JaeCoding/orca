@@ -153,11 +153,7 @@ describe("a Stop's event", () => {
     expect(rig.dispatch).not.toHaveBeenCalled()
     expect(rig.closeSession).toHaveBeenCalledTimes(1)
     expect(atEnd).toEqual([
-      {
-        reason: 'user-stop',
-        caller: QUEUED_RIG_CALLER.callerKey,
-        at: expect.any(Number)
-      }
+      { reason: 'user-stop', caller: QUEUED_RIG_CALLER.callerKey, at: expect.any(Number) }
     ])
   })
 
@@ -175,11 +171,7 @@ describe("a Stop's event", () => {
     expect(rig.dispatch).not.toHaveBeenCalled()
     expect(rig.cancelTurn).not.toHaveBeenCalled()
     expect(stopEvents()).toEqual([
-      {
-        reason: 'user-stop',
-        caller: QUEUED_RIG_CALLER.callerKey,
-        at: expect.any(Number)
-      }
+      { reason: 'user-stop', caller: QUEUED_RIG_CALLER.callerKey, at: expect.any(Number) }
     ])
   })
 
