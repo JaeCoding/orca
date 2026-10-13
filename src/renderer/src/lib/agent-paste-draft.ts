@@ -91,7 +91,8 @@ export async function pasteDraftWhenAgentReady(args: {
     tabId,
     spawnTimeoutMs: PTY_SPAWN_TIMEOUT_MS,
     readinessTimeoutMs,
-    readySignal
+    readySignal,
+    ...(args.sendGate ? { spawnClockGate: args.sendGate } : {})
   })
   // Why: a closed gate is the caller's own outcome to report; the bounded wait above just lapses.
   if (args.sendGate && !(await args.sendGate)) {
@@ -245,6 +246,8 @@ function waitForAgentDraftInputReadyOnTab(args: {
   spawnTimeoutMs: number
   readinessTimeoutMs: number
   readySignal: Parameters<typeof waitForAgentDraftInputReady>[2]
+  /** The spawn budget starts once this opens, so a pane that starts late still gets all of it. */
+  spawnClockGate?: Promise<boolean>
 }): Promise<{ ptyId: string; ready: boolean } | null> {
   return new Promise((resolve) => {
     let selectedPtyId: string | null = null
@@ -285,7 +288,16 @@ function waitForAgentDraftInputReadyOnTab(args: {
       }
     }
 
-    spawnTimer = window.setTimeout(() => finish(null), args.spawnTimeoutMs)
+    const startSpawnClock = (): void => {
+      if (!settled && !selectedPtyId) {
+        spawnTimer = window.setTimeout(() => finish(null), args.spawnTimeoutMs)
+      }
+    }
+    if (args.spawnClockGate) {
+      void args.spawnClockGate.then((open) => (open ? startSpawnClock() : finish(null)))
+    } else {
+      startSpawnClock()
+    }
     unsubscribeStore = useAppStore.subscribe(bindFromState)
     bindFromState(useAppStore.getState())
   })

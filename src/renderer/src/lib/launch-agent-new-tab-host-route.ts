@@ -56,7 +56,7 @@ export function launchNewTabPromptThroughHost(
     ...(onPromptDelivered ? { onPromptDelivered } : {}),
     ...(onPromptDeliveryUnconfirmed ? { onPromptDeliveryUnconfirmed } : {})
   })
-  // The pane, or the notice for a tab that went, already says why: never a second notice.
+  // The pane already says why it didn't start, and a closed tab needs nothing: no second notice.
   const promptDeliveryResult = started.then((launched) =>
     launched ? pasted : { delivered: false, failureNotified: true }
   )

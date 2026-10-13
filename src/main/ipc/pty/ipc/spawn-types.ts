@@ -58,7 +58,7 @@ export type PtySpawnIpcArgs = {
   placement?: unknown
   // Untyped on purpose: isRestoreSpawnIntent is the one check; anything else is undeclared.
   spawnIntent?: unknown
-  // Untyped on purpose: parseAgentPaneLaunchRequest is the one check, and refuses what it rejects.
+  // Untyped on purpose: planPaneAgentLaunch's AgentLaunch.safeParse is the one check.
   agentLaunch?: unknown
   // Why: renderer-threaded launch telemetry (telemetry-plan.md§Agent launch semantics); loosely typed because the main-side schema validator is the single enforcement point.
   telemetry?: {

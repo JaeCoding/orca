@@ -4,13 +4,22 @@ import { pasteDraftToAgentPtyWhenReady, pasteDraftWhenAgentReady } from './agent
 const testState = vi.hoisted(() => ({
   waitForReady: vi.fn(),
   inspectProcess: vi.fn(),
-  sendInput: vi.fn()
+  sendInput: vi.fn(),
+  ptyIdsByTabId: { 'tab-1': ['pty-1'] } as Record<string, string[]>,
+  listeners: new Set<(state: unknown) => void>()
 }))
+
+function storeState() {
+  return { settings: {}, tabsByWorktree: {}, ptyIdsByTabId: testState.ptyIdsByTabId }
+}
 
 vi.mock('@/store', () => ({
   useAppStore: {
-    getState: () => ({ settings: {}, tabsByWorktree: {}, ptyIdsByTabId: { 'tab-1': ['pty-1'] } }),
-    subscribe: () => () => {}
+    getState: storeState,
+    subscribe: (listener: (state: unknown) => void) => {
+      testState.listeners.add(listener)
+      return () => testState.listeners.delete(listener)
+    }
   }
 }))
 
@@ -149,6 +158,33 @@ describe('pty-bound agent draft readiness budget', () => {
     expect(testState.sendInput).toHaveBeenCalledTimes(1)
     expect(onUnconfirmedDelivery).toHaveBeenCalledTimes(1)
   })
+
+  // An AI button's pane may settle its grid for longer than the spawn budget before it spawns.
+  it.each([true, false])(
+    'starts the spawn budget when the pane says whether it started (%s)',
+    async (started) => {
+      let answer!: (started: boolean) => void
+      const promise = pasteDraftWhenAgentReady({
+        tabId: 'tab-late',
+        content: 'task',
+        agent: 'codex',
+        submit: true,
+        forcePaste: true,
+        sendGate: new Promise<boolean>((resolve) => {
+          answer = resolve
+        })
+      })
+
+      await vi.advanceTimersByTimeAsync(13_000)
+      testState.ptyIdsByTabId['tab-late'] = ['pty-late']
+      testState.listeners.forEach((listener) => listener(storeState()))
+      answer(started)
+      await vi.advanceTimersByTimeAsync(12_000)
+
+      await expect(promise).resolves.toBe(started)
+      expect(testState.sendInput.mock.calls.length > 0).toBe(started)
+    }
+  )
 
   it('keeps the 8s readiness deadline for agents without an agent-specific budget', async () => {
     const onTimeout = vi.fn()
