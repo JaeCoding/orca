@@ -11,7 +11,6 @@ import { NATIVE_CHAT_VISUAL_THEME_TOKENS } from '../../shared/native-chat-visual
 import { ORCAD_NATIVE_CHAT_VISUALS_ARTIFACTS } from '../../shared/orcad-artifacts'
 import {
   createNativeChatVisualsDelivery,
-  LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV,
   NATIVE_CHAT_SCRATCH_DIR_ENV,
   withNativeChatVisualsEnv
 } from './native-chat-visuals-delivery'
@@ -120,17 +119,12 @@ describe('preparing a chat for visuals', () => {
   })
 
   it("never hands a chat another chat's folder that Orca itself inherited", async () => {
-    const inherited = {
-      PATH: '/bin',
-      [NATIVE_CHAT_SCRATCH_DIR_ENV]: '/parent-chat',
-      [LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV]: '/older-parent-chat'
-    }
+    const inherited = { PATH: '/bin', [NATIVE_CHAT_SCRATCH_DIR_ENV]: '/parent-chat' }
     const visuals = { folder: '/mine', skill: SKILL }
     for (const platform of ['darwin', 'win32'] as const) {
       const claude = (configured: Record<string, string>) =>
         buildClaudeChildProcessEnv(configured, { inheritedEnv: inherited, platform })
       expect(claude({})).not.toHaveProperty(NATIVE_CHAT_SCRATCH_DIR_ENV)
-      expect(claude({})).not.toHaveProperty(LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV)
       expect(claude(withNativeChatVisualsEnv({}, visuals))[NATIVE_CHAT_SCRATCH_DIR_ENV]).toBe(
         '/mine'
       )
@@ -159,11 +153,7 @@ describe('preparing a chat for visuals', () => {
   })
 
   it('names only this chat folder to the agent', () => {
-    const inherited = {
-      PATH: '/bin',
-      [NATIVE_CHAT_SCRATCH_DIR_ENV]: '/other-chat',
-      [LEGACY_NATIVE_CHAT_VISUALS_DIR_ENV]: '/older-chat'
-    }
+    const inherited = { PATH: '/bin', [NATIVE_CHAT_SCRATCH_DIR_ENV]: '/other-chat' }
     expect(withNativeChatVisualsEnv(inherited, { folder: '/mine', skill: SKILL })).toEqual({
       PATH: '/bin',
       [NATIVE_CHAT_SCRATCH_DIR_ENV]: '/mine'
