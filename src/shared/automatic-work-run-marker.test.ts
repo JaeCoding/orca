@@ -3,6 +3,7 @@ import {
   decideStartupAutomaticWorkMode,
   isSameBoot,
   parseAutomaticWorkRunMarker,
+  provesPreviousBoot,
   type AutomaticWorkRunMarker
 } from './automatic-work-run-marker'
 
@@ -80,5 +81,26 @@ describe('parseAutomaticWorkRunMarker', () => {
     expect(
       parseAutomaticWorkRunMarker(JSON.stringify({ ...marker(), mode: { kind: 'paused' } }))
     ).toBeNull()
+  })
+})
+
+describe('provesPreviousBoot', () => {
+  const unknown = { bootTimeMs: null, bootId: null }
+  const later = (ms: number) => ({ bootTimeMs: BOOT.bootTimeMs + ms, bootId: null })
+  it.each([
+    [
+      'a different known boot id',
+      { bootTimeMs: 0, bootId: 'a' },
+      { bootTimeMs: 0, bootId: 'b' },
+      true
+    ],
+    ['a boot time later beyond the tolerance', BOOT, later(3_600_000), true],
+    ['the same boot id', { bootTimeMs: 0, bootId: 'a' }, { bootTimeMs: 9e12, bootId: 'a' }, false],
+    ['a clock shift within the tolerance', BOOT, later(60_000), false],
+    ['a backward clock shift', BOOT, later(-3_600_000), false],
+    ['unknown evidence', BOOT, unknown, false],
+    ['no evidence at all (Windows)', unknown, unknown, false]
+  ])('%s -> %s', (_case, recorded, current, proven) => {
+    expect(provesPreviousBoot(recorded, current)).toBe(proven)
   })
 })

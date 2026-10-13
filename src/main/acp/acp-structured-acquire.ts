@@ -114,6 +114,7 @@ export async function acquireAcpStructuredSession(input: {
     {
       clientInfo: { name: 'orca', version: '1' },
       ...(acquire.onOutput ? { onOutput: acquire.onOutput } : {}),
+      ...(deps.privateTempRoot ? { privateTempRoot: deps.privateTempRoot } : {}),
       onPermission: (request, context) => {
         if (!session?.turns.acceptsRequests) {
           // No prompt of Orca's runs (a turn the agent began itself included), or a Stop or steer
@@ -209,6 +210,7 @@ export async function acquireAcpStructuredSession(input: {
     )
   }
   await identity.onSpawned(pid)
+  connection.recordPrivateTempOwner(await identity.read(pid))
   const agentName = acpAgentName(spec.agent)
   try {
     const initialized = await connection.initialize()

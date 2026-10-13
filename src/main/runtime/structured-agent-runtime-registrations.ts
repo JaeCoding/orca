@@ -50,6 +50,10 @@ import {
   resolveAcpLaunchCommand
 } from '../acp/acp-structured-launch-resolution'
 import { AcpStructuredSessionAdapter } from '../acp/acp-structured-session-adapter'
+import {
+  providerPrivateTempRoot,
+  sweepProviderPrivateTempDirectories
+} from '../provider-process/provider-private-temp-directory'
 import { PI_RPC_RUNTIME_REGISTRATION } from '../pi/rpc-runtime-registration'
 import type { AgentModelCatalogDiscovery } from '../native-chat/agent-model-catalog/agent-model-catalog-discovery'
 import {
@@ -228,6 +232,13 @@ function acpRegistration(spec: AcpLaunchSpec): StructuredAgentRuntimeRegistratio
       const readJournal = (sessionId: string) =>
         replayJournal(context.journalDatabase.db, sessionId)
       const definition = acpStructuredAgentDefinition(spec)
+      const privateTempRoot = spec.privateTempDirectory
+        ? providerPrivateTempRoot(deps.stateDirectory)
+        : null
+      if (privateTempRoot) {
+        // At host start, never awaited: leftovers must not hold up a launch.
+        void sweepProviderPrivateTempDirectories(privateTempRoot)
+      }
       const sources = structuredAgentLaunchSources(context)
       const part = acpStructuredLaunchPart(spec, {
         readJournal,
@@ -242,6 +253,7 @@ function acpRegistration(spec: AcpLaunchSpec): StructuredAgentRuntimeRegistratio
         readLaunch: composeStructuredLaunchRead(definition, sources, part),
         dataDirectory: deps.stateDirectory,
         connect: (launch, options) => createAcpAgentConnection(launch, options),
+        ...(privateTempRoot ? { privateTempRoot } : {}),
         onChildWorkEvidence: (sessionId, evidence) =>
           context.host()?.publishChildWorkEvidence(sessionId, evidence),
         ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),

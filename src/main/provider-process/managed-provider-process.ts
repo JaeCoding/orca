@@ -44,6 +44,8 @@ type ManagedProviderProcessOptions = {
   lifetime?: ProviderSupervisorLifetime
   /** Any stdout or stderr chunk: the child is doing something. */
   onOutput?: () => void
+  /** The child's own temp folder, removed only on proof nothing spawned or the whole tree exited. */
+  privateTemp?: { env: Record<string, string>; remove(): void }
 }
 
 export type ManagedProviderProcess = {
@@ -73,6 +75,23 @@ export function spawnManagedProviderProcess(
   launch: ProviderProcessLaunch,
   options: ManagedProviderProcessOptions
 ): ManagedProviderProcess {
+  const { privateTemp } = options
+  try {
+    return spawnManaged(
+      privateTemp ? { ...launch, env: { ...launch.env, ...privateTemp.env } } : launch,
+      options
+    )
+  } catch (error) {
+    privateTemp?.remove()
+    throw error
+  }
+}
+
+function spawnManaged(
+  launch: ProviderProcessLaunch,
+  options: ManagedProviderProcessOptions
+): ManagedProviderProcess {
+  const { privateTemp } = options
   const platform = options.platform ?? process.platform
   const closePolicy = options.policy ?? rootOnlyProviderClosePolicy
   const spec = createProviderSpawnSpec(launch, options.inheritedEnv ?? process.env, platform, {
@@ -119,6 +138,9 @@ export function spawnManagedProviderProcess(
     }
     observed = exit
     resolveExit()
+    if (exit.processless) {
+      privateTemp?.remove()
+    }
     for (const listener of listeners) {
       listener(exit)
     }
@@ -189,6 +211,9 @@ export function spawnManagedProviderProcess(
           terminateTree
         })
         lastCloseResult = result
+        if (result.root === 'exited' && result.tree === 'exited') {
+          privateTemp?.remove()
+        }
         return result
       })
     }

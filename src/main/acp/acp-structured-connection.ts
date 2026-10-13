@@ -26,6 +26,7 @@ export type AcpStructuredConnection = Pick<
   | 'resumeReading'
   | 'close'
   | 'processTreeUnproven'
+  | 'recordPrivateTempOwner'
 >
 
 export type ConnectAcpAgent = (

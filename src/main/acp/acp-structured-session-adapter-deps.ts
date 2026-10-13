@@ -31,6 +31,8 @@ export type AcpStructuredSessionAdapterDeps = {
   dataDirectory?: string
   /** Starts the agent's process and owns its protocol: `createAcpAgentConnection` in production. */
   connect: ConnectAcpAgent
+  /** Where each child gets its own temp folder; absent, it shares the host's. */
+  privateTempRoot?: string
   readProcessStartTime?: (pid: number) => Promise<number | null>
   /** Every exit, expected or not: the host ends that child's record. */
   onEvent?: (event: StructuredAgentSessionLifecycleEvent) => void

@@ -6,6 +6,11 @@ import {
   type ProviderProcessExit
 } from '../provider-process/managed-provider-process'
 import type { ProviderProcessLaunch } from '../provider-process/provider-process-launch'
+import type { AgentSessionProcessIdentity } from '../../shared/agent-session-record'
+import {
+  createProviderPrivateTempDirectory,
+  type ProviderPrivateTempDirectory
+} from '../provider-process/provider-private-temp-directory'
 import { AcpConnectionClosedError } from './acp-errors'
 import { resolveAcpPeerOptions, type AcpPeerOptions } from './acp-peer-limits'
 import { AcpSessionRuntime, type AcpSessionRuntimeOptions } from './acp-session-runtime'
@@ -16,6 +21,8 @@ export type AcpAgentConnectionOptions = Omit<AcpSessionRuntimeOptions, 'peer'> &
   onExit?: (error: Error, context: { expected: boolean; exit: ProviderProcessExit }) => void
   /** Any stdout or stderr chunk from the child. */
   onOutput?: () => void
+  /** Gives the child its own temp folder under this root. */
+  privateTempRoot?: string
 }
 
 /** The execution host owns the child and protocol lifetime; the adapter owns turns and Stop. */
@@ -29,6 +36,7 @@ export function createAcpAgentConnection(
 
 export class AcpAgentConnection extends AcpSessionRuntime {
   private readonly managed: ManagedProviderProcess
+  private readonly privateTemp: ProviderPrivateTempDirectory | undefined
   private readonly lifecycle: { closing: boolean; error?: Error }
   private readonly diagnoseLifecycle: (message: string) => void
   readonly spawned: Promise<void>
@@ -40,10 +48,14 @@ export class AcpAgentConnection extends AcpSessionRuntime {
   ) {
     // Validate before spawning so invalid limits cannot leave an unowned child.
     const peer = resolveAcpPeerOptions({ ...options.peer, closeOnInputEnd: false })
+    const privateTemp = options.privateTempRoot
+      ? createProviderPrivateTempDirectory(options.privateTempRoot)
+      : undefined
     const managed = spawnManagedProviderProcess(launch, {
       spawnImpl,
       site: 'acp-agent-teardown',
-      ...(options.onOutput ? { onOutput: options.onOutput } : {})
+      ...(options.onOutput ? { onOutput: options.onOutput } : {}),
+      ...(privateTemp ? { privateTemp } : {})
     })
     const lifecycle: { closing: boolean; error?: Error } = { closing: false }
     const diagnose = (message: string): void => {
@@ -73,6 +85,7 @@ export class AcpAgentConnection extends AcpSessionRuntime {
       }
     })
     this.managed = managed
+    this.privateTemp = privateTemp
     this.lifecycle = lifecycle
     this.diagnoseLifecycle = diagnose
     const { child } = managed
@@ -129,6 +142,10 @@ export class AcpAgentConnection extends AcpSessionRuntime {
 
   stderrTail(): string {
     return this.managed.stderrTail().trim()
+  }
+
+  recordPrivateTempOwner(process: AgentSessionProcessIdentity): void {
+    this.privateTemp?.recordOwner(process)
   }
 
   onExit(listener: (exit: ProviderProcessExit) => void): void {

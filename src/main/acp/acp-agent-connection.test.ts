@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PipedProcessSpawner } from '@orca/process-host/process-spec'
@@ -5,6 +8,8 @@ import { createFakePipedChild } from '../../shared/__fixtures__/fake-spawned-chi
 import { PROVIDER_SUPERVISOR_MAX_STOP_MS } from '../provider-process/provider-process-supervisor'
 import { ROOT_ONLY_GRACEFUL_EXIT_MS } from '../provider-process/provider-process-close'
 import type { terminateProviderProcessTree } from '../provider-process/provider-process-teardown'
+import { sweepProviderPrivateTempDirectories } from '../provider-process/provider-private-temp-directory'
+import { readBootIdentity } from '../daemon/automatic-work-run-marker-store'
 import {
   createAcpAgentConnection,
   type AcpAgentConnection,
@@ -293,5 +298,37 @@ describe('ACP process-owning connection', () => {
       )
     ).toThrow('positive finite integers')
     expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('keeps a private temp folder until the whole tree is proven gone, here or by a later boot', async () => {
+    vi.useFakeTimers()
+    const root = mkdtempSync(join(tmpdir(), 'acp-private-temp-'))
+    const tempOf = (spawn: ReturnType<typeof fixture>['spawn']): string =>
+      String(spawn.mock.calls[0][0].env?.TMPDIR)
+    const kept = fixture({ privateTempRoot: root })
+    const keptTemp = tempOf(kept.spawn)
+    expect(kept.spawn.mock.calls[0][0].env).toMatchObject({ TEMP: keptTemp, TMP: keptTemp })
+    expect(existsSync(keptTemp)).toBe(true)
+    // The root leaving on its own says nothing about what it left running.
+    expect(await kept.connection.close()).toBe(true)
+    const reaped = fixture({ privateTempRoot: root }, { exitOnEnd: false })
+    teardown.mockImplementationOnce(async () => {
+      reaped.child.emit('exit', null, 'SIGKILL')
+      return 'exited'
+    })
+    const closing = reaped.connection.close()
+    await vi.advanceTimersByTimeAsync(grace + 1_000)
+    expect(await closing).toBe(true)
+    await vi.waitFor(() => expect(existsSync(tempOf(reaped.spawn))).toBe(false))
+    expect(existsSync(keptTemp)).toBe(true)
+    await sweepProviderPrivateTempDirectories(root, readBootIdentity())
+    expect(readdirSync(root)).toHaveLength(1)
+    await sweepProviderPrivateTempDirectories(root, {
+      bootTimeMs: Date.now() + 86_400_000,
+      bootId: 'a-later-boot'
+    })
+    // Windows has no boot evidence, so nothing there is proven gone.
+    expect(readdirSync(root)).toHaveLength(process.platform === 'win32' ? 1 : 0)
+    rmSync(root, { recursive: true, force: true })
   })
 })

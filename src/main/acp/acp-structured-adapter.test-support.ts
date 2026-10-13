@@ -59,6 +59,7 @@ export class FakeAcpChild extends AcpSessionRuntime implements AcpStructuredConn
   readonly spawned = Promise.resolve()
   stderr = ''
   processTreeUnproven = false
+  recordPrivateTempOwner(): void {}
   private exitListeners: ((exit: ProviderProcessExit) => void)[] = []
   private gone = false
   private closing = false

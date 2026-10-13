@@ -30,6 +30,18 @@ export function isSameBoot(a: BootIdentity, b: BootIdentity): boolean {
   return Math.abs(a.bootTimeMs - b.bootTimeMs) <= BOOT_TIME_TOLERANCE_MS
 }
 
+/** Reboot proof, never inferred from missing evidence. Boot time is wall clock minus uptime, so only a
+ *  later one beyond the tolerance counts: a backward clock shift is not a reboot. */
+export function provesPreviousBoot(recorded: BootIdentity, current: BootIdentity): boolean {
+  if (recorded.bootId !== null && current.bootId !== null) {
+    return recorded.bootId !== current.bootId
+  }
+  if (recorded.bootTimeMs === null || current.bootTimeMs === null) {
+    return false
+  }
+  return current.bootTimeMs - recorded.bootTimeMs > BOOT_TIME_TOLERANCE_MS
+}
+
 /**
  * A host that died with automatic work running, while the machine stayed up, pauses
  * automatic restores until someone resumes them; a new boot goes through the normal
@@ -65,6 +77,8 @@ const MarkerSchema = z.object({
     })
   ])
 })
+
+export const BootIdentitySchema = MarkerSchema.shape.boot
 
 /** Unreadable or foreign content reads as "no previous run", never as a pause. */
 export function parseAutomaticWorkRunMarker(text: string): AutomaticWorkRunMarker | null {
