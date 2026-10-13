@@ -7,6 +7,7 @@ import {
   chatModelSupportsAutoMode,
   chatPermissionModeNeedsModelSupport,
   effectiveChatPermissionMode,
+  newChatPermissionMode,
   type AgentChatPermissionMode
 } from '../../../shared/agent-chat-permission-mode'
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
@@ -49,4 +50,19 @@ export async function structuredAgentSessionLaunchPermission(
     chatPermissionModeNeedsModelSupport(support, intent) &&
     (await listedAutoModeSupport(deps.modelCatalog, record))
   return effectiveChatPermissionMode(support, intent, autoSupported)
+}
+
+/** The saved options a start writes back. A chat saved before chats had modes gets the new-chat
+ *  mode its first start runs with, so from then on it keeps its own like any other chat. */
+export function structuredAgentSessionStartOptions(
+  deps: Pick<StructuredAgentSessionHostDeps, 'newChatPermissionMode'>,
+  record: AgentSessionRecord
+): Readonly<Record<string, string>> | undefined {
+  if (record.options?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID] !== undefined) {
+    return record.options
+  }
+  const mode = deps.newChatPermissionMode
+    ? newChatPermissionMode(record.provider, deps.newChatPermissionMode())
+    : null
+  return mode ? { ...record.options, [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: mode } : record.options
 }

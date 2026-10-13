@@ -101,10 +101,11 @@ export async function acquireOwner(
       providerChildPhase === 'starting'
         ? undefined
         : await withAgentSessionCreatePhase('restore_options', input.recordPhase, async () => {
+            const priorOptions = input.startOptions ? input.startOptions(record) : record.options
             const read = {
               sessionId: record.sessionId,
               fence,
-              ...(record.options ? { priorOptions: record.options } : {})
+              ...(priorOptions ? { priorOptions } : {})
             }
             // Still inside the start, so the limit or a Stop ends a read the provider never answers.
             return waitForPromiseWithSignal(

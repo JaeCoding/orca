@@ -80,6 +80,8 @@ export type AttachFlowInput = {
   launchPermissionMode?: (
     record: AgentSessionRecord
   ) => Promise<AgentChatPermissionMode | undefined>
+  /** The saved options this start writes back; absent, the record's own. */
+  startOptions?: (record: AgentSessionRecord) => Readonly<Record<string, string>> | undefined
   /** Publishes the journal before clients can send against the new owner. `acquiredOwner` is
    *  true only when this attach spawned the provider child, so a re-attach to a live one is not
    *  mistaken for a cold acquire. */

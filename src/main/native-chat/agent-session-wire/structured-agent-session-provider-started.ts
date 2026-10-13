@@ -22,6 +22,7 @@ import type {
   StructuredAgentSessionHostSession
 } from './structured-agent-session-host-types'
 import { nativeSessionOptionsFromReport } from './structured-agent-session-option-restoration'
+import { structuredAgentSessionStartOptions } from './structured-agent-session-launch-permission'
 import {
   markProviderChildStarted,
   sameProviderChild
@@ -167,6 +168,7 @@ function persistReportedOptions(
       ) {
         return
       }
+      const priorOptions = structuredAgentSessionStartOptions(context.deps, record)
       try {
         await context.deps.store.replaceSessionOptions({
           sessionId: event.sessionId,
@@ -175,7 +177,7 @@ function persistReportedOptions(
             reported: event.reportedOptions,
             restoreSkipped: event.restoreSkippedOptions,
             ...(event.retiredOptions ? { retired: event.retiredOptions } : {}),
-            ...(record.options ? { priorOptions: record.options } : {})
+            ...(priorOptions ? { priorOptions } : {})
           }),
           now: context.now()
         })

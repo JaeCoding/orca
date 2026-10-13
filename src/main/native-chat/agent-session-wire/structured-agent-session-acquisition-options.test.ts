@@ -23,6 +23,7 @@ import { openTestJournalHostDatabase } from '../agent-session-journal/journal-ho
 import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 import { NO_STRUCTURED_AGENTS } from './structured-agent-session-adapter-router-test-support'
+import { structuredAgentSessionStartOptions } from './structured-agent-session-launch-permission'
 
 const NOW = 1_800_000_000_000
 const SESSION = 'legacy-session'
@@ -360,6 +361,78 @@ describe('structured session acquisition options', () => {
       fastMode: 'false'
     })
   })
+
+  it.each([
+    [undefined, 'full-access'],
+    ['ask', 'ask']
+  ] as const)(
+    'a resumed chat saved with permission mode %s keeps %s after its start',
+    async (saved, expected) => {
+      root = await mkdtemp(join(tmpdir(), 'orca-acquisition-permission-'))
+      const store = await openTestAgentSessionRecordStore(root)
+      const created = await performAttach({
+        agents: NO_STRUCTURED_AGENTS,
+        logger: createStructuredAgentSessionLogger(),
+        store,
+        adapter: adapter({ origin: 'created' }),
+        openConversation: openTestAttachConversation(openTestJournalHostDatabase(root!)),
+        authority: {
+          spawnToken: 'spawn-a',
+          claimKeyId: 'key-1',
+          handoffOperationId: CREATE_OPERATION,
+          probe: { outcome: 'reservation-unused' }
+        },
+        callerKey: 'client-1',
+        optionRevision: () => 0,
+        params: attachParams(CREATE_OPERATION, null, saved ? { permissionMode: saved } : undefined),
+        now: () => NOW,
+        onAttached: () => {}
+      })
+      expect(created).toMatchObject({ ok: true })
+
+      const resumedStore = await openTestAgentSessionRecordStore(root)
+      await resumedStore.reconcileOnRestart({
+        probe: async () => ({ outcome: 'pid-absent' }),
+        now: NOW + 1
+      })
+      const resumed = await performAttach({
+        agents: NO_STRUCTURED_AGENTS,
+        logger: createStructuredAgentSessionLogger(),
+        store: resumedStore,
+        adapter: adapter({
+          origin: 'resumed',
+          options: { current: { model: 'gpt-5.6-terra' }, models: [] }
+        }),
+        openConversation: openTestAttachConversation(openTestJournalHostDatabase(root!)),
+        authority: {
+          spawnToken: 'spawn-b',
+          claimKeyId: 'key-1',
+          handoffOperationId: RESUME_OPERATION,
+          probe: { outcome: 'reservation-unused' }
+        },
+        callerKey: 'client-1',
+        optionRevision: () => 0,
+        startOptions: (record) =>
+          structuredAgentSessionStartOptions(
+            { newChatPermissionMode: () => 'full-access' },
+            record
+          ),
+        params: attachParams(
+          RESUME_OPERATION,
+          resumedStore.getRecord(SESSION)?.lease.runtimeFence ?? 0
+        ),
+        now: () => NOW + 1,
+        onAttached: () => {}
+      })
+
+      expect(resumed).toMatchObject({ ok: true })
+      const reopened = await openTestAgentSessionRecordStore(root)
+      expect(reopened.getRecord(SESSION)?.options).toEqual({
+        permissionMode: expected,
+        model: 'gpt-5.6-terra'
+      })
+    }
+  )
 
   it('clears a rejected Fast restore instead of retaining the prior encoded value', async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-acquisition-fast-restore-'))

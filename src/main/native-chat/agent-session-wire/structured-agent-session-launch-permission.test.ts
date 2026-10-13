@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { AgentSessionModelCatalogResult } from '../../../shared/agent-session-wire'
 import { claudeAndCodexDeclared } from './structured-agent-session-adapter-router-test-support'
-import { structuredAgentSessionLaunchPermission } from './structured-agent-session-launch-permission'
+import {
+  structuredAgentSessionLaunchPermission,
+  structuredAgentSessionStartOptions
+} from './structured-agent-session-launch-permission'
 
 function record(provider: string, options: Record<string, string> | undefined): AgentSessionRecord {
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the launch mode reads only the record's id, agent and options.
@@ -144,5 +147,30 @@ describe('the permission mode a chat starts with', () => {
     await expect(launchPermission('grok', { permissionMode: 'full-access' }).result).resolves.toBe(
       null
     )
+  })
+})
+
+describe('the options a start writes back', () => {
+  const fullAccess = { newChatPermissionMode: () => 'full-access' }
+
+  it('gives a chat saved before modes the new-chat mode, narrowed to its agent', () => {
+    expect(
+      structuredAgentSessionStartOptions(fullAccess, record('claude', { model: 'opus' }))
+    ).toEqual({ model: 'opus', permissionMode: 'full-access' })
+    expect(
+      structuredAgentSessionStartOptions(
+        { newChatPermissionMode: () => 'accept-edits' },
+        record('codex', undefined)
+      )
+    ).toEqual({ permissionMode: 'ask' })
+  })
+
+  it('keeps a saved mode, and adds none for an agent without modes or a host without the setting', () => {
+    const saved = record('claude', { permissionMode: 'ask' })
+    expect(structuredAgentSessionStartOptions(fullAccess, saved)).toBe(saved.options)
+    expect(
+      structuredAgentSessionStartOptions(fullAccess, record('grok', undefined))
+    ).toBeUndefined()
+    expect(structuredAgentSessionStartOptions({}, record('claude', undefined))).toBeUndefined()
   })
 })
