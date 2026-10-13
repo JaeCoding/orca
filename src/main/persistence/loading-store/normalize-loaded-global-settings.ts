@@ -139,7 +139,10 @@ export function normalizeLoadedGlobalSettings(
       parsed.settings?.nativeChatPermissionMode,
       {
         ...migratedAgentYoloDefaults,
-        terminalWindowsShell: parsed.settings?.terminalWindowsShell
+        terminalWindowsShell:
+          typeof parsed.settings?.terminalWindowsShell === 'string'
+            ? parsed.settings.terminalWindowsShell
+            : undefined
       },
       process.platform
     ),

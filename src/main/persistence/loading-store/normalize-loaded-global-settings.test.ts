@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { getDefaultPersistedState } from '../../../shared/constants'
 import { normalizeLoadedGlobalSettings } from './normalize-loaded-global-settings'
 import { prepareLoadedTerminalSettings } from './prepare-loaded-terminal-settings'
@@ -145,6 +145,110 @@ describe('the new-chat permission setting', () => {
       nativeChatPermissionMode: 'ask',
       ...applyAgentPermissionMode({ mode: 'yolo' })
     })
+    expect(normalized.nativeChatPermissionMode).toBe('ask')
+  })
+})
+
+describe('Windows chat permission seeding', () => {
+  const originalPlatform = process.platform
+
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform })
+  })
+
+  it.each([
+    { shell: 7 },
+    { shell: false },
+    { shell: {} },
+    { shell: [] },
+    { shell: null },
+    { shell: undefined }
+  ])(
+    'loads an absent permission choice with a missing or non-string shell: $shell',
+    ({ shell }) => {
+      const normalized = normalizeLegacyProfile({
+        nativeChatPermissionMode: undefined,
+        terminalWindowsShell: shell
+      })
+      expect(normalized.nativeChatPermissionMode).toBe('full-access')
+    }
+  )
+
+  it('uses the default PowerShell family for a malformed shell', () => {
+    const normalized = normalizeLegacyProfile({
+      nativeChatPermissionMode: undefined,
+      terminalWindowsShell: 7,
+      agentDefaultArgs: {
+        claude: '`--dangerously-skip-permissions',
+        codex: '`--dangerously-bypass-approvals-and-sandbox'
+      }
+    })
+    expect(normalized.nativeChatPermissionMode).toBe('full-access')
+  })
+
+  it.each([
+    { shell: 'powershell.exe', escape: '`' },
+    { shell: 'C:\\Tools\\PowerShell\\pwsh.exe', escape: '`' },
+    { shell: 'cmd.exe', escape: '^' },
+    { shell: 'C:\\Tools\\Custom Shell\\cmd.exe', escape: '^' },
+    { shell: 'git-bash', escape: '\\' },
+    { shell: 'C:\\Tools\\Custom Shell\\bash.exe', escape: '\\' },
+    { shell: 'wsl.exe', escape: '\\' }
+  ])('keeps the saved $shell family and custom path', ({ shell, escape }) => {
+    const normalized = normalizeLegacyProfile({
+      nativeChatPermissionMode: undefined,
+      terminalWindowsShell: shell,
+      agentDefaultArgs: {
+        claude: `${escape}--dangerously-skip-permissions`,
+        codex: `${escape}--dangerously-bypass-approvals-and-sandbox`
+      }
+    })
+    expect(normalized.nativeChatPermissionMode).toBe('full-access')
+    expect(normalized.terminalWindowsShell).toBe(shell)
+  })
+
+  it.each(['ask', 'accept-edits', 'auto', 'full-access'] as const)(
+    'keeps a saved %s with a malformed shell',
+    (mode) => {
+      expect(
+        normalizeLegacyProfile({
+          nativeChatPermissionMode: mode,
+          terminalWindowsShell: 7,
+          ...applyAgentPermissionMode({ mode: 'manual' })
+        }).nativeChatPermissionMode
+      ).toBe(mode)
+    }
+  )
+
+  it.each(['claude', 'codex'] as const)(
+    'asks when %s does not bypass with a malformed shell',
+    (agent) => {
+      const terminal = applyAgentPermissionMode({ mode: 'yolo' })
+      Object.assign(terminal.agentDefaultArgs, { [agent]: '--model custom' })
+      expect(
+        normalizeLegacyProfile({
+          ...terminal,
+          nativeChatPermissionMode: undefined,
+          terminalWindowsShell: 7
+        }).nativeChatPermissionMode
+      ).toBe('ask')
+    }
+  )
+
+  it('seeds from migrated arguments with a malformed shell', () => {
+    const normalized = normalizeLegacyProfile({
+      nativeChatPermissionMode: undefined,
+      terminalWindowsShell: 7,
+      agentYoloDefaultsMigrated: undefined,
+      agentDefaultArgs: undefined,
+      agentCmdOverrides: { claude: 'custom-claude' }
+    })
+    expect(normalized.agentDefaultArgs?.claude).toBe('')
+    expect(normalized.agentDefaultArgs?.codex).toBe('--dangerously-bypass-approvals-and-sandbox')
     expect(normalized.nativeChatPermissionMode).toBe('ask')
   })
 })
