@@ -30,7 +30,9 @@ import {
 import { decodeTranscriptStream } from '../transcript-stream-lines'
 import { readOpenCodeNativeChatTranscriptFull } from '../transcript-opencode'
 import { boundSubagentEntryId } from '../subagent-entry-id-bounds'
+import { parseJsonObject } from '../../ai-vault/session-scanner-values'
 import { createLegacyIdentityTracker } from './journal-legacy-identity'
+import { selectActivePiBranch, type PiTranscriptBranchEntry } from './journal-pi-active-branch'
 import type { JournalReplacementItem } from './journal-epoch-replacement'
 import {
   boundInlineText,
@@ -206,6 +208,9 @@ async function decodeWithIdentities(input: {
   })
   const decode = TRANSCRIPT_DECODERS[input.transcriptAgent]
   const identities: AgentJournalItemIdentity[] = []
+  const piEntries: PiTranscriptBranchEntry[] = []
+  let piVersion = 1
+  let piPreviousId: string | null = null
   let lineIndex = 0
 
   // Count raw bytes while reading: the source can grow after the stat check.
@@ -218,6 +223,21 @@ async function decodeWithIdentities(input: {
       const trackedIdentity = tracker.identify(line, lineIndex)
       lineIndex += 1
       const message = decode(line, fallbackId)
+      if (input.agent === 'pi') {
+        const record = parseJsonObject(line)
+        if (record?.type === 'session') {
+          piVersion = typeof record.version === 'number' ? record.version : 1
+        } else if (record) {
+          const id = piVersion < 2 ? `#${lineIndex}` : record.id
+          const parentId = piVersion < 2 ? piPreviousId : record.parentId
+          if (typeof id !== 'string' || !(parentId === null || typeof parentId === 'string')) {
+            throw new Error('Pi session entry has no valid branch identity')
+          }
+          piEntries.push({ id, parentId, message, identity: trackedIdentity })
+          piPreviousId = id
+        }
+        return message
+      }
       if (message) {
         identities.push(
           input.decodedMessageIdentities
@@ -235,6 +255,9 @@ async function decodeWithIdentities(input: {
     true,
     MAX_LEGACY_IMPORT_SOURCE_BYTES
   )
+  if (input.agent === 'pi') {
+    return selectActivePiBranch(piEntries)
+  }
   return { messages, identities }
 }
 

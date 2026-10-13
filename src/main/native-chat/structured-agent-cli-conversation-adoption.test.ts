@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CLI_CONVERSATION_ADOPTING_AGENTS } from '../../shared/structured-agent-cli-conversation-adoption'
 import {
@@ -327,6 +327,9 @@ describe.each(['grok', 'omp', 'pi'] as const)('adopting a %s CLI conversation', 
   it('finds the conversation under the chat account and imports its history', async () => {
     root = await mkdtemp(join(tmpdir(), `orca-${agent}-adopt-`))
     const recorded = await RECORDED[agent](root, `ORCA-${agent}-ADOPT`)
+    if (agent === 'pi') {
+      vi.stubEnv('PI_CODING_AGENT_DIR', root)
+    }
 
     const accountHome = { variable: ACCOUNT_VARIABLE[agent], path: root }
     const adoption = await adopt(agent, accountHome)
@@ -351,6 +354,84 @@ describe.each(['grok', 'omp', 'pi'] as const)('adopting a %s CLI conversation', 
 })
 
 describe('adopting a Pi CLI conversation', () => {
+  it('pins the Session History account when another Pi home has the same id', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-pi-adopt-homes-'))
+    const selected = join(root, 'selected')
+    const history = join(root, 'history')
+    await RECORDED.pi(selected, 'SELECTED')
+    const source = await RECORDED.pi(history, 'HISTORY')
+    vi.stubEnv('PI_CODING_AGENT_DIR', history)
+
+    expect(await adopt('pi', { variable: 'PI_CODING_AGENT_DIR', path: selected })).toEqual({
+      accountHome: { variable: 'PI_CODING_AGENT_DIR', path: history },
+      transcriptPath: source
+    })
+  })
+
+  it('refuses duplicate Pi id files in one account home', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-pi-adopt-duplicates-'))
+    const recorded = await RECORDED.pi(root, 'FIRST')
+    const duplicate = join(
+      root,
+      'sessions',
+      '--other--',
+      `2026-10-13T00-00-00-000Z_${SESSION_ID}.jsonl`
+    )
+    await mkdir(dirname(duplicate), { recursive: true })
+    await writeFile(duplicate, await readFile(recorded))
+    vi.stubEnv('PI_CODING_AGENT_DIR', root)
+
+    await expect(
+      adopt('pi', { variable: 'PI_CODING_AGENT_DIR', path: root })
+    ).rejects.toMatchObject({
+      refusal: { code: 'agent_session_identity_required' }
+    })
+  })
+
+  it('refuses a selected-home copy absent from the Session History account', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-pi-adopt-wrong-home-'))
+    const selected = join(root, 'selected')
+    await RECORDED.pi(selected, 'SELECTED')
+    vi.stubEnv('PI_CODING_AGENT_DIR', join(root, 'history'))
+    await expect(
+      adopt('pi', { variable: 'PI_CODING_AGENT_DIR', path: selected })
+    ).rejects.toMatchObject({
+      refusal: { code: 'agent_session_identity_required' }
+    })
+  })
+
+  it('imports only the active ancestry after a Pi rewind', async () => {
+    root = await mkdtemp(join(tmpdir(), 'orca-pi-adopt-branch-'))
+    const recorded = await RECORDED.pi(root, 'ORCA-pi-ROOT')
+    const records = [
+      { type: 'session', version: 3, id: SESSION_ID, cwd: '/repo/orca' },
+      { type: 'message', id: 'root', parentId: null, message: { role: 'user', content: 'ROOT' } },
+      {
+        type: 'message',
+        id: 'abandoned',
+        parentId: 'root',
+        message: { role: 'assistant', content: 'ABANDONED' }
+      },
+      {
+        type: 'message',
+        id: 'active',
+        parentId: 'root',
+        message: { role: 'assistant', content: 'ACTIVE' }
+      },
+      { type: 'label', id: 'last', parentId: 'active', targetId: 'active', label: 'kept' }
+    ]
+    await writeFile(recorded, `${records.map((entry) => JSON.stringify(entry)).join('\n')}\n`)
+    const imported = await prepareLegacyTranscriptImport({
+      agent: 'pi',
+      sessionId: SESSION_ID,
+      options: { filePath: recorded }
+    })
+    expect(imported.ok && imported.items.map((item) => item.body)).toEqual([
+      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'ROOT' }] },
+      { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: 'ACTIVE' }] }
+    ])
+  })
+
   it("imports the conversation's turns, not the system prompt Pi records", async () => {
     root = await mkdtemp(join(tmpdir(), 'orca-pi-adopt-turns-'))
     const recorded = await RECORDED.pi(root, 'ORCA-pi-TURN')

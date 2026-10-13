@@ -27,6 +27,7 @@ import {
 import { parseWorkspaceKey } from '../../shared/workspace-scope'
 import type { AgentSessionAccountHome } from '../../shared/agent-session-account-home'
 import type { StructuredAgentId } from '../../shared/agent-session-provider-handle'
+import { readPiSessionHeader, samePiDirectory } from '../pi/rpc-launch-resolution'
 
 export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaRuntimeWithGetWorktreePs {
   async getStructuredAgentSessionCreateSupport(
@@ -243,6 +244,15 @@ export class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport extends OrcaR
             workspaceCwd: (await this.resolveRuntimeFileTarget(input.worktree)).worktree.path
           })
         : null
+    if (input.agent === 'pi' && adoption) {
+      const header = await readPiSessionHeader(adoption.transcriptPath)
+      const targetDirectory = (await this.resolveRuntimeFileTarget(input.worktree)).worktree.path
+      if (!header || !(await samePiDirectory(header.cwd, targetDirectory))) {
+        throw agentSessionRefusalError('agent_session_identity_required', {
+          reason: 'transcriptNotFound'
+        })
+      }
+    }
     return {
       envelope: {
         sessionId: input.envelope.sessionId,

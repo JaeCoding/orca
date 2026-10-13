@@ -179,6 +179,28 @@ describe('Pi host launch resolution', () => {
     expect(() => piRpcProviderLink(forked, elsewhere, 2, 'bad', 200)).toThrow('did not fork')
   })
 
+  it('refuses to fork an adopted source if its folder changes before first launch', async () => {
+    const h = await setup()
+    const source = join(root, 'adopted.jsonl')
+    await writeFile(source, `${JSON.stringify({ type: 'session', cwd: join(root, 'other') })}\n`)
+    h.withPrior(h.prior(source, 'adopted'))
+
+    await expect(h.resolver(identity)).rejects.toMatchObject({
+      refusal: { code: 'agent_session_identity_required' }
+    })
+    await writeFile(
+      source,
+      `${JSON.stringify({ type: 'session', id: 'another', cwd: h.workspace })}\n`
+    )
+    await expect(h.resolver(identity)).rejects.toMatchObject({
+      refusal: { code: 'agent_session_identity_required' }
+    })
+    await rm(source)
+    await expect(h.resolver(identity)).rejects.toMatchObject({
+      refusal: { code: 'agent_session_identity_required' }
+    })
+  })
+
   it('resumes the stored session file after Orca restarts and reopens the store', async () => {
     const h = await setup()
     const file = join(root, 'conversation.jsonl')
