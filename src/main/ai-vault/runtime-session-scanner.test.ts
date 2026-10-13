@@ -191,7 +191,10 @@ describe('runtime AI Vault session scanner', () => {
   it("keeps the copy a server's chat made for Resume in New CLI", async () => {
     mocks.callRuntimeEnvironment.mockResolvedValueOnce({
       ok: true,
-      result: { useRealCodexHome: false, forkedSessionId: 'ses_copy1' }
+      result: {
+        useRealCodexHome: false,
+        forkedSession: { sessionId: 'ses_copy1', agent: 'opencode' }
+      }
     })
 
     await expect(
@@ -203,7 +206,10 @@ describe('runtime AI Vault session scanner', () => {
         executionHostId: 'runtime:env-1',
         fork: true
       })
-    ).resolves.toEqual({ useRealCodexHome: false, forkedSessionId: 'ses_copy1' })
+    ).resolves.toEqual({
+      useRealCodexHome: false,
+      forkedSession: { sessionId: 'ses_copy1', agent: 'opencode' }
+    })
   })
 
   it('fails retryably when runtime preparation returns an invalid result', async () => {

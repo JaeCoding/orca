@@ -36,5 +36,8 @@ export async function copyStructuredChatConversation(
     },
     providerSessionId: ownership.providerSessionId
   })
-  return { useRealCodexHome: false, forkedSessionId }
+  return {
+    useRealCodexHome: false,
+    forkedSession: { sessionId: forkedSessionId, agent: record.provider }
+  }
 }

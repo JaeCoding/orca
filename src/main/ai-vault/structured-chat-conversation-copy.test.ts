@@ -41,7 +41,11 @@ describe('copying a chat conversation for Resume in New CLI', () => {
 
       await expect(
         copyStructuredChatConversation(fork({ agent, sessionId, filePath: `/x/${sessionId}` }))
-      ).resolves.toEqual({ useRealCodexHome: false, forkedSessionId: 'copy-1' })
+      ).resolves.toEqual({
+        useRealCodexHome: false,
+        // The copy opens with the CLI that ran the chat: `opencode` for an OpenCode 2.x row.
+        forkedSession: { sessionId: 'copy-1', agent: handle.agent }
+      })
       expect(copy).toHaveBeenCalledWith({
         identity: {
           sessionId: 'chat-1',

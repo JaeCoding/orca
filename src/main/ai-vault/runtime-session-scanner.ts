@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  AI_VAULT_AGENTS,
   AI_VAULT_SCOPE_PATHS_MAX_COUNT,
   type AiVaultListArgs,
   type AiVaultListResult,
@@ -33,7 +34,7 @@ export type RuntimeAiVaultScanOptions = {
 const aiVaultPrepareSessionResumeResultSchema = z.object({
   useRealCodexHome: z.boolean(),
   substituteCodexHome: z.string().optional(),
-  forkedSessionId: z.string().optional()
+  forkedSession: z.object({ sessionId: z.string(), agent: z.enum(AI_VAULT_AGENTS) }).optional()
 })
 
 export function getSavedRuntimeAiVaultHostInfos(

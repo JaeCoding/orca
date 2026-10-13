@@ -282,7 +282,7 @@ describe('aiVault.prepareSessionResume for a chat whose host makes the copy', ()
 
     expect(response).toMatchObject({
       ok: true,
-      result: { useRealCodexHome: false, forkedSessionId: 'copy-1' }
+      result: { useRealCodexHome: false, forkedSession: { sessionId: 'copy-1', agent: 'omp' } }
     })
     expect(copy).toHaveBeenCalledWith(expect.objectContaining({ providerSessionId }))
     expect(prepareAiVaultSessionResume).not.toHaveBeenCalled()

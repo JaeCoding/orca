@@ -147,7 +147,7 @@ describe('prepareAiVaultSessionForFork', () => {
     async (agent) => {
       const prepareSessionResume = vi.fn().mockResolvedValue({
         useRealCodexHome: false,
-        forkedSessionId: 'copy-1'
+        forkedSession: { sessionId: 'copy-1', agent: agent === 'opencode2' ? 'opencode' : agent }
       })
       stubPreparation(prepareSessionResume)
       const owned = session({
@@ -170,8 +170,9 @@ describe('prepareAiVaultSessionForFork', () => {
         fork: true
       })
       expect(prepared.copied).toBe(true)
+      // An OpenCode 2.x chat's conversation lists as `opencode2`; its copy opens with `opencode`.
       expect(prepared.session).toMatchObject({
-        agent,
+        agent: agent === 'opencode2' ? 'opencode' : agent,
         sessionId: 'copy-1',
         filePath: '',
         resumeCommand: '',

@@ -29,7 +29,10 @@ describe('Resume in New CLI preparation for a chat whose host makes the copy', (
 
     await expect(
       prepareAiVaultSessionResume(forkArgs('local'), { prepareSessionResume })
-    ).resolves.toEqual({ useRealCodexHome: false, forkedSessionId: 'copy-1' })
+    ).resolves.toEqual({
+      useRealCodexHome: false,
+      forkedSession: { sessionId: 'copy-1', agent: 'omp' }
+    })
     expect(prepareSessionResume).not.toHaveBeenCalled()
   })
 
@@ -38,12 +41,15 @@ describe('Resume in New CLI preparation for a chat whose host makes the copy', (
     installCopyingChat({ transport: 'acp', agent: 'omp', nativeId: 'unrelated' }, copy)
     const prepareRuntimeSessionResume = vi.fn(async () => ({
       useRealCodexHome: false,
-      forkedSessionId: 'remote-copy'
+      forkedSession: { sessionId: 'remote-copy', agent: 'omp' }
     }))
 
     await expect(
       prepareAiVaultSessionResume(forkArgs('runtime:env-1'), { prepareRuntimeSessionResume })
-    ).resolves.toEqual({ useRealCodexHome: false, forkedSessionId: 'remote-copy' })
+    ).resolves.toEqual({
+      useRealCodexHome: false,
+      forkedSession: { sessionId: 'remote-copy', agent: 'omp' }
+    })
     expect(prepareRuntimeSessionResume).toHaveBeenCalledWith('env-1', forkArgs('runtime:env-1'))
     expect(copy).not.toHaveBeenCalled()
   })

@@ -37,14 +37,15 @@ export async function prepareAiVaultSessionForFork(
     executionHostId: session.executionHostId,
     fork: true
   })
-  if (!result.forkedSessionId) {
+  if (!result.forkedSession) {
     // A host that predates chat copies makes none; resuming the chat's own would be a second writer.
     throw new Error(aiVaultCliForkHostTooOldMessage())
   }
   const { structuredSession: _owner, ...copy } = session
-  // The copy's own file is unknown here; its id resumes it in the chat's folder.
+  // The copy's own file is unknown here; its id resumes it in the chat's folder, with the chat's CLI.
+  const { sessionId, agent } = result.forkedSession
   return {
-    session: { ...copy, sessionId: result.forkedSessionId, filePath: '', resumeCommand: '' },
+    session: { ...copy, agent, sessionId, filePath: '', resumeCommand: '' },
     copied: true
   }
 }
