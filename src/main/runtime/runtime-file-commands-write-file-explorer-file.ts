@@ -2,6 +2,8 @@
 import { RuntimeFileCommandsWithReadFileExplorerPreview } from './runtime-file-commands-read-file-explorer-preview'
 import { assertRuntimeFileMutationExpectation } from './runtime-file-commands-mobile-file-list-limit'
 import { requireRuntimeFileProvider } from './runtime-file-command-target'
+import { runNativeChatScratchSave } from '../native-chat/native-chat-scratch-folder-lock'
+import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
 
 export class RuntimeFileCommandsWithWriteFileExplorerFile extends RuntimeFileCommandsWithReadFileExplorerPreview {
   async writeFileExplorerFile(
@@ -19,7 +21,9 @@ export class RuntimeFileCommandsWithWriteFileExplorerFile extends RuntimeFileCom
       expectedSshTargetId,
       expectedSshConnectionGeneration
     )
-    await requireRuntimeFileProvider(target, this.host).writeFile(target.path, content)
+    await runNativeChatScratchSave(getProfileUserDataPath(), target.path, () =>
+      requireRuntimeFileProvider(target, this.host).writeFile(target.path, content)
+    )
     return { ok: true }
   }
 
