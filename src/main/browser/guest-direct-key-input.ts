@@ -1,4 +1,5 @@
 import type { InputEvent, KeyboardInputEvent, WebContents } from 'electron'
+import { enablePageFocusEmulation, type AgentInputFocusGuard } from './agent-input-focus-guard'
 
 // Why: Chromium routes main-session CDP key and text input on a <webview> guest by the
 // window's focus, so it lands in whatever the user is typing into (#20595). Events sent to
@@ -251,14 +252,30 @@ function runEditCommand(webContents: WebContents, command: GuestEditCommand): vo
   }
 }
 
+const NO_FOCUS_GUARD: AgentInputFocusGuard = async () => () => {}
+
+// Why: the fallback needs the guest natively focused for CDP to reach it; the guard hands the
+// user's focus back afterwards, and emulation keeps the page from seeing that as a blur.
+async function focusGuestForCdpInput(
+  webContents: WebContents,
+  send: GuestCdpSender,
+  guardFocus: AgentInputFocusGuard
+): Promise<() => void> {
+  await enablePageFocusEmulation(send)
+  const release = await guardFocus()
+  webContents.focus()
+  return release
+}
+
 /**
  * Delivers a CDP key event to a page. Embedded guests get widget events; anything those
- * cannot express keeps the CDP path after focusing the guest, so it still reaches the page.
+ * cannot express keeps the CDP path while borrowing focus, so it still reaches the page.
  */
 export async function dispatchPageKeyEvent(
   webContents: WebContents,
   params: Record<string, unknown>,
-  send: GuestCdpSender
+  send: GuestCdpSender,
+  guardFocus: AgentInputFocusGuard = NO_FOCUS_GUARD
 ): Promise<unknown> {
   if (!isEmbeddedGuest(webContents)) {
     return await send('Input.dispatchKeyEvent', params)
@@ -276,29 +293,50 @@ export async function dispatchPageKeyEvent(
     }
     return {}
   }
-  webContents.focus()
-  return await send('Input.dispatchKeyEvent', params)
+  const release = await focusGuestForCdpInput(webContents, send, guardFocus)
+  try {
+    return await send('Input.dispatchKeyEvent', params)
+  } finally {
+    release()
+  }
 }
 
 /**
  * Chooses how Input.insertText reaches a page: guest widget events for embedded guests, else
- * CDP after focusing the guest. Call before any DOM.focus replay; the fallback's focus blurs.
+ * CDP with the guest focused. Call before any DOM.focus replay; the fallback's focus blurs.
  */
+export type TextInsertionRoute = {
+  deliver: (params: Record<string, unknown>) => Promise<unknown>
+  // Why: the fallback holds borrowed focus from routing until delivery; an insert abandoned in
+  // between must still give it back.
+  release: () => void
+}
+
 export async function routePageTextInsertion(
   webContents: WebContents,
   params: Record<string, unknown>,
-  send: GuestCdpSender
-): Promise<(params: Record<string, unknown>) => Promise<unknown>> {
-  const events = isEmbeddedGuest(webContents) ? planInsertText(params.text) : null
+  send: GuestCdpSender,
+  guardFocus: AgentInputFocusGuard = NO_FOCUS_GUARD
+): Promise<TextInsertionRoute> {
+  const sendText = (insertParams: Record<string, unknown>): Promise<unknown> =>
+    send('Input.insertText', insertParams)
+  if (!isEmbeddedGuest(webContents)) {
+    webContents.focus()
+    return { deliver: sendText, release: () => {} }
+  }
+  const events = planInsertText(params.text)
   if (events && !(await isFocusInSubframe(send))) {
-    return async () => {
-      for (const event of events) {
-        webContents.sendInputEvent(event)
-      }
-      await waitForPageToHandleInput(send)
-      return {}
+    return {
+      deliver: async () => {
+        for (const event of events) {
+          webContents.sendInputEvent(event)
+        }
+        await waitForPageToHandleInput(send)
+        return {}
+      },
+      release: () => {}
     }
   }
-  webContents.focus()
-  return (insertParams) => send('Input.insertText', insertParams)
+  const release = await focusGuestForCdpInput(webContents, send, guardFocus)
+  return { deliver: sendText, release }
 }

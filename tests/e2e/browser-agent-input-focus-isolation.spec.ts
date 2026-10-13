@@ -17,11 +17,14 @@ const PAGE_HTML = `<!doctype html>
   <head><meta charset="utf-8" /><title>Focus isolation probe</title></head>
   <body>
     <form id="form"><input id="probe" /></form>
+    <textarea id="notes"></textarea>
     <button id="target" style="position:absolute;left:40px;top:80px;width:200px;height:60px">target</button>
     <script>
       window.__keys = []
       window.__submits = 0
       window.__clicks = 0
+      window.__blurs = 0
+      document.getElementById('probe').addEventListener('blur', () => { window.__blurs += 1 })
       addEventListener('keydown', (event) => window.__keys.push(event.key), true)
       document.getElementById('form').addEventListener('submit', (event) => {
         event.preventDefault()
@@ -99,35 +102,45 @@ async function readHost(page: Page): Promise<{ log: string[]; terminalFocused: b
   }))
 }
 
+/** Opens the probe in a browser tab, then puts the terminal back in front of it. */
+async function openBackgroundProbeTab(page: Page, url: string): Promise<string> {
+  await waitForActiveWorktree(page)
+  await ensureTerminalVisible(page)
+  const worktreeId = await getActiveWorktreeId(page)
+  expect(worktreeId).toBeTruthy()
+  // Why: shown once so the page gets a viewport; a tab never shown can stay 0x0, and clicks miss.
+  const pageId = await page.evaluate(
+    ({ targetWorktreeId, targetUrl }) =>
+      window.__store?.getState().createBrowserTab(targetWorktreeId, targetUrl, {
+        title: 'Focus isolation probe',
+        activate: true
+      })?.activePageId ?? null,
+    { targetWorktreeId: worktreeId!, targetUrl: url }
+  )
+  if (!pageId) {
+    throw new Error('Failed to create the probe browser page')
+  }
+  // Why: the title exists before the probe's script runs; input sent earlier goes unrecorded.
+  const readiness = `document.readyState === 'complete' && innerWidth > 0 && 'clicks' + window.__clicks`
+  await expect.poll(() => evalInPage(page, pageId, readiness), { timeout: 20_000 }).toBe('clicks0')
+  await ensureTerminalVisible(page)
+  await expect.poll(() => evalInPage(page, pageId, readiness)).toBe('clicks0')
+  return pageId
+}
+
 test('agent keys and text reach the page without leaving the user’s terminal', async ({
   orcaPage
 }) => {
   test.setTimeout(120_000)
   const server = await startProbeServer()
   try {
-    await waitForActiveWorktree(orcaPage)
-    await ensureTerminalVisible(orcaPage)
-    const worktreeId = await getActiveWorktreeId(orcaPage)
-    expect(worktreeId).toBeTruthy()
-    const pageId = await orcaPage.evaluate(
-      ({ targetWorktreeId, targetUrl }) =>
-        window.__store?.getState().createBrowserTab(targetWorktreeId, targetUrl, {
-          title: 'Focus isolation probe',
-          activate: false
-        })?.activePageId ?? null,
-      { targetWorktreeId: worktreeId!, targetUrl: server.url }
-    )
-    expect(pageId).toBeTruthy()
-    await expect
-      .poll(() => evalInPage(orcaPage, pageId!, 'document.title'), { timeout: 20_000 })
-      .toBe('Focus isolation probe')
-    await ensureTerminalVisible(orcaPage)
+    const pageId = await openBackgroundProbeTab(orcaPage, server.url)
 
     await focusTerminalAndWatchHost(orcaPage)
-    await evalInPage(orcaPage, pageId!, `document.getElementById('probe').focus()`)
+    await evalInPage(orcaPage, pageId, `document.getElementById('probe').focus()`)
 
     const probeValue = (): Promise<unknown> =>
-      evalInPage(orcaPage, pageId!, `document.getElementById('probe').value`)
+      evalInPage(orcaPage, pageId, `document.getElementById('probe').value`)
     await rpc(orcaPage, 'browser.keypress', { page: pageId, key: 'Z' })
     await rpc(orcaPage, 'browser.type', { page: pageId, input: 'qr' })
     await expect.poll(probeValue).toBe('Zqr')
@@ -142,12 +155,65 @@ test('agent keys and text reach the page without leaving the user’s terminal',
       .poll(() =>
         evalInPage(
           orcaPage,
-          pageId!,
+          pageId,
           `JSON.stringify({ submits: window.__submits, keys: window.__keys })`
         )
       )
       // Why: `type` inserts text without key events, so only the keypresses log keydowns.
       .toBe(JSON.stringify({ submits: 1, keys: ['Z', 'Enter'] }))
+  } finally {
+    await server.close()
+  }
+})
+
+test('agent clicks and presses reach the page without leaving the user’s terminal', async ({
+  orcaPage
+}) => {
+  test.setTimeout(120_000)
+  const server = await startProbeServer()
+  try {
+    const pageId = await openBackgroundProbeTab(orcaPage, server.url)
+    await focusTerminalAndWatchHost(orcaPage)
+    const clicks = (): Promise<unknown> => evalInPage(orcaPage, pageId, 'window.__clicks')
+
+    await rpc(orcaPage, 'browser.click', { page: pageId, element: '#target' })
+    await expect.poll(clicks).toBe('1')
+    expect((await readHost(orcaPage)).terminalFocused).toBe(true)
+
+    await rpc(orcaPage, 'browser.mouseMove', { page: pageId, x: 100, y: 100 })
+    await rpc(orcaPage, 'browser.mouseDown', { page: pageId, button: 'left' })
+    await rpc(orcaPage, 'browser.mouseUp', { page: pageId, button: 'left' })
+    await expect.poll(clicks).toBe('2')
+    expect((await readHost(orcaPage)).terminalFocused).toBe(true)
+
+    // Why: the page must still see the field the agent clicked as focused, or menus close on blur.
+    await rpc(orcaPage, 'browser.click', { page: pageId, element: '#probe' })
+    await expect
+      .poll(() =>
+        evalInPage(
+          orcaPage,
+          pageId,
+          `JSON.stringify({ active: document.activeElement.id, focused: document.hasFocus(), blurs: window.__blurs })`
+        )
+      )
+      .toBe(JSON.stringify({ active: 'probe', focused: true, blurs: 0 }))
+    expect((await readHost(orcaPage)).terminalFocused).toBe(true)
+
+    // Why: text with a newline cannot be typed as key events; CDP delivers it with focus borrowed.
+    await rpc(orcaPage, 'browser.fill', { page: pageId, element: '#notes', value: 'a\nb' })
+    await expect
+      .poll(() => evalInPage(orcaPage, pageId, `document.getElementById('notes').value`))
+      .toBe('a\nb')
+    expect((await readHost(orcaPage)).terminalFocused).toBe(true)
+
+    // Why: the user's next keystroke is what the bug stole; it must reach the terminal, not the page.
+    await orcaPage.keyboard.press('x')
+    const host = await readHost(orcaPage)
+    expect(host.log.filter((entry) => entry.startsWith('key:'))).toEqual(['key:x'])
+    expect(host.terminalFocused).toBe(true)
+    await expect
+      .poll(() => evalInPage(orcaPage, pageId, 'JSON.stringify(window.__keys)'))
+      .toBe('[]')
   } finally {
     await server.close()
   }
