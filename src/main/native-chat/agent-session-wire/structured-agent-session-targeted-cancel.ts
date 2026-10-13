@@ -7,7 +7,6 @@ import { agentChildWorkStopTargets } from '../../../shared/agent-child-work-stop
 import { agentSessionFailureFact } from '../../../shared/agent-session-failure'
 import { agentSessionFailureWords } from '../../../shared/agent-session-failure-words'
 import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
-import type { AgentChildWorkView } from '../../../shared/agent-status-child-work-view'
 import type { AgentSessionCancelResult } from '../../../shared/agent-session-wire'
 import { validatePendingPrompt } from './structured-agent-session-prompt-state'
 import { acceptStopTarget } from './structured-agent-session-stop-acceptance'
@@ -16,26 +15,28 @@ import {
   noteStructuredAgentSessionStopUnconfirmed,
   writeStructuredAgentSessionStopNote
 } from './structured-agent-session-stop-unconfirmed-note'
-import { performCancel } from './structured-agent-session-turns-cancel'
+import { isMainAgentWorking, performCancel } from './structured-agent-session-turns-cancel'
+import {
+  stopStructuredAgentSessionBackgroundWork,
+  type StructuredAgentSessionBackgroundStopInput
+} from './structured-agent-session-background-stop'
 import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
 
 export async function runTargetedCancel(
   ctx: AgentSessionTurnContext,
-  params: {
+  params: StructuredAgentSessionBackgroundStopInput & {
     clientOperationId: string
     turnId?: string
     scope?: 'background-tasks'
-    taskId?: string
     prompt?: { itemId: string; expectedRevision: number }
-    childWork?: () => readonly AgentChildWorkView[] | undefined
   }
 ): Promise<TurnOutcome<AgentSessionCancelResult>> {
   const named = params.turnId !== undefined ? { turnId: params.turnId } : {}
   const { clientOperationId, prompt } = params
   if (params.scope) {
     // Resolved once, here: a retry is answered from the receipt and never reaches a newer task.
-    const taskIds = agentChildWorkStopTargets(params.childWork?.(), params.taskId)
-    if (taskIds.length === 0) {
+    const targets = agentChildWorkStopTargets(params.childWork?.(), params.taskId)
+    if (targets.length === 0 && !(params.unlisted?.present() && atRest(ctx))) {
       return { ok: true, value: { ...named, cancelled: false } }
     }
     const accepted = await acceptStopTarget(ctx)
@@ -44,7 +45,11 @@ export async function runTargetedCancel(
     }
     const cancelled = await stopCapturedBackgroundTasks(ctx, {
       operationId: clientOperationId,
-      taskIds,
+      work: {
+        targets,
+        ...(params.acknowledgeStops ? { acknowledgeStops: params.acknowledgeStops } : {}),
+        ...(params.unlisted ? { unlisted: params.unlisted } : {})
+      },
       backgroundStop: params.taskId ? 'task' : 'all'
     })
     return { ok: true, value: { ...named, cancelled } }
@@ -78,19 +83,24 @@ export async function runTargetedCancel(
   }
 }
 
+/** No turn runs, so ending the agent ends only the work no record lists. */
+function atRest(ctx: AgentSessionTurnContext): boolean {
+  return ctx.journal.activeTurnId() === null && !isMainAgentWorking(ctx)
+}
+
 /** Stops the tasks the Stop captured. Tasks outlive the turn they began in, so its note is the
  *  thread's, keyed by this Stop's own id. */
 async function stopCapturedBackgroundTasks(
   ctx: AgentSessionTurnContext,
-  stop: { operationId: string; taskIds: readonly string[]; backgroundStop: 'task' | 'all' }
+  stop: {
+    operationId: string
+    work: Parameters<typeof stopStructuredAgentSessionBackgroundWork>[1]
+    backgroundStop: 'task' | 'all'
+  }
 ): Promise<boolean> {
-  let result: { cancelled: boolean; stillRunning?: true } | undefined
+  let result: { cancelled: boolean; stillRunning?: true }
   try {
-    result = await ctx.adapter.stopBackgroundTasks?.({
-      sessionId: ctx.sessionId,
-      fence: ctx.fence,
-      taskIds: stop.taskIds
-    })
+    result = await stopStructuredAgentSessionBackgroundWork(ctx, stop.work, () => atRest(ctx))
   } catch (error) {
     // A timeout or lost contact proves nothing about the task: unconfirmed, never "not stopped".
     await noteStructuredAgentSessionStopUnconfirmed(
@@ -101,7 +111,7 @@ async function stopCapturedBackgroundTasks(
     )
     return false
   }
-  if (result?.stillRunning) {
+  if (result.stillRunning) {
     const words = agentSessionFailureWords(
       agentSessionFailureFact('backgroundTaskNotStopped', { backgroundStop: stop.backgroundStop }),
       { surface: 'row' }
@@ -114,5 +124,5 @@ async function stopCapturedBackgroundTasks(
     )
     return false
   }
-  return result?.cancelled === true
+  return result.cancelled
 }

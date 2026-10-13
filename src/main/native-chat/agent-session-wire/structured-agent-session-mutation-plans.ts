@@ -5,6 +5,7 @@
 // prompt answer's replay answers from the resolution its receipt keeps; the journal projects the
 // others' current answer.
 
+import type { AgentChildWorkEvidence } from '../../../shared/agent-status-child-work-evidence'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import {
   AGENT_MESSAGE_SOURCE,
@@ -23,6 +24,7 @@ import type {
 } from '../../../shared/agent-session-wire'
 import type { AgentSessionConversationCommandResult } from '../../../shared/agent-session-conversation-command'
 import { DISPATCH_DOUBT_SUBMISSION_MISSING } from '../agent-session-journal/journal-dispatch-doubt-reasons'
+import type { StructuredAgentSessionBackgroundStopInput } from './structured-agent-session-background-stop'
 import {
   agentSessionMessagePayload,
   agentSessionSendBodyFingerprint
@@ -280,6 +282,8 @@ export function cancelPlan(params: {
   prompt?: { itemId: string; expectedRevision: number }
   /** The session's child records, which name the tasks a background Stop reaches. */
   childWork?: () => readonly AgentChildWorkView[] | undefined
+  acknowledgeStops?: (evidence: AgentChildWorkEvidence[]) => void
+  unlisted?: StructuredAgentSessionBackgroundStopInput['unlisted']
 }): MutationPlan<AgentSessionCancelResult> {
   const named = params.turnId !== undefined ? { turnId: params.turnId } : {}
   return {
