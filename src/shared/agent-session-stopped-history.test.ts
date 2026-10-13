@@ -13,6 +13,7 @@ import {
   agentSessionStoppedHistoryOwed,
   selectStoppedHistory,
   STOPPED_MESSAGE_FRAMING_BYTES,
+  stoppedHistoryBudget,
   withStoppedHistory,
   type StoppedHistoryJournal
 } from './agent-session-stopped-history'
@@ -282,45 +283,74 @@ describe('which sends carry stopped history', () => {
 })
 
 describe('what one delivery holds', () => {
-  const stopped = (id: string, words: string) => ({
-    clientMessageId: id,
-    words
-  })
+  const stopped = (id: string, words: string) => ({ clientMessageId: id, words })
+  const ROOM = 64 * 1024
 
-  it('holds every owed message in the order sent while their words fit', () => {
+  it('holds every owed message in the order sent while they fit', () => {
     const owed = [stopped('a', 'one'), stopped('b', 'two')]
-    expect(selectStoppedHistory(owed)).toEqual({
-      messages: owed,
-      covers: ['a', 'b']
-    })
-    expect(selectStoppedHistory([])).toBeNull()
+    expect(selectStoppedHistory(owed, ROOM)).toEqual({ messages: owed, covers: ['a', 'b'] })
+    expect(selectStoppedHistory([], ROOM)).toBeNull()
   })
 
-  it('keeps the newest, then older ones while the whole fits one send, and covers those left out', () => {
-    // Quotes double in JSON: each big one is admissible alone (about 200 KiB of a send's 256 KiB).
-    const big = '"'.repeat(100 * 1024)
+  it('fills from the newest, skips one that does not fit, and covers those left out', () => {
+    // Quotes double in JSON: each big one costs about 40 KiB of the 64 KiB room.
+    const big = '"'.repeat(20 * 1024)
     const owed = [
       stopped('a', 'first'),
       stopped('b', big),
       stopped('c', 'third'),
       stopped('d', big)
     ]
-    expect(selectStoppedHistory(owed)).toEqual({
+    expect(selectStoppedHistory(owed, ROOM)).toEqual({
       messages: [owed[0], owed[2], owed[3]],
       covers: ['a', 'b', 'c', 'd']
     })
   })
 
+  it('holds none, covering none, when not even the newest fits', () => {
+    expect(selectStoppedHistory([stopped('a', 'x'.repeat(1024))], 512)).toBeNull()
+  })
+
   it('counts each message with the framing of either transport', () => {
     // 3,000 one-letter messages: the framing, not the words, decides how many fit.
     const owed = Array.from({ length: 3_000 }, (_, index) => stopped(`m${index}`, 'x'))
-    const delivery = selectStoppedHistory(owed)!
-    const fits = Math.floor(
-      MAX_PROMPT_BYTES / (JSON.stringify('x').length + STOPPED_MESSAGE_FRAMING_BYTES)
-    )
-    expect(delivery.messages).toHaveLength(fits)
+    const delivery = selectStoppedHistory(owed, ROOM)!
+    const each = JSON.stringify('x').length + STOPPED_MESSAGE_FRAMING_BYTES
+    expect(delivery.messages).toHaveLength(Math.floor(ROOM / each))
     expect(delivery.messages.at(-1)).toBe(owed.at(-1))
     expect(delivery.covers).toHaveLength(3_000)
+  })
+})
+
+describe("a send's room for stopped history", () => {
+  const own = message('go ahead')
+  const ownBytes = JSON.stringify('go ahead').length
+
+  it("is what the agent's context has left beside the send, a quarter of the window kept free", () => {
+    expect(stoppedHistoryBudget({ usedTokens: 50_000, windowTokens: 200_000 }, own)).toBe(
+      200_000 - 50_000 - ownBytes - 50_000
+    )
+    // An unknown window is read as 128k tokens, at one byte per token.
+    expect(stoppedHistoryBudget(null, own)).toBe(128_000 - ownBytes - 32_000)
+  })
+
+  it("leaves room for the send's images and never exceeds what one send holds", () => {
+    const withImage = message('', {
+      blocks: [
+        { type: 'text', text: 'go ahead' },
+        { type: 'image-ref', path: '/tmp/shot.png' }
+      ]
+    })
+    expect(stoppedHistoryBudget(null, withImage)).toBe(128_000 - ownBytes - 8_192 - 32_000)
+    expect(stoppedHistoryBudget({ usedTokens: 0, windowTokens: 1_000_000 }, own)).toBe(
+      MAX_PROMPT_BYTES
+    )
+  })
+
+  it('has no room in a nearly full context', () => {
+    expect(stoppedHistoryBudget({ usedTokens: 190_000, windowTokens: 200_000 }, own)).toBeLessThan(
+      0
+    )
   })
 })
 

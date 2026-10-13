@@ -12,6 +12,7 @@ import {
   type AgentJournalSubmission,
   type AgentJournalTurnScope
 } from '../../../shared/agent-session-journal-types'
+import type { AgentSessionContextUsage } from '../../../shared/agent-session-context-usage'
 import type { JournalStoppedMessageInjection } from '../agent-session-journal/journal-row-schema'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import {
@@ -52,6 +53,7 @@ const NEXT: AgentJournalSubmission = {
 function handover(
   options: {
     turnScope?: AgentJournalTurnScope
+    contextUsage?: AgentSessionContextUsage
     inject?: StructuredAgentSessionAdapter['injectStoppedMessages']
     record?: (injection: JournalStoppedMessageInjection) => Promise<void>
   } = {}
@@ -67,6 +69,7 @@ function handover(
     journal: {
       submissions: () => submissions,
       liveTurnScope: () => options.turnScope ?? AGENT_JOURNAL_THREAD_SCOPE,
+      contextUsage: () => options.contextUsage ?? {},
       context: { floor: () => null },
       itemBody: (itemId: string) =>
         message(
@@ -99,6 +102,29 @@ describe('the stopped history a handover delivers', () => {
       messages: STOPPED,
       covers: ['old', 'new']
     })
+  })
+
+  it('delivers none, leaving them owed, when the agent reports a nearly full context', async () => {
+    const full: AgentSessionContextUsage = {
+      window: { tokens: 200_000, capturedAt: 1 },
+      used: {
+        kind: 'report',
+        model: 'm',
+        usedTokens: 199_000,
+        windowTokens: 200_000,
+        percentage: 99,
+        categories: [],
+        capturedAt: 1
+      }
+    }
+    expect(
+      carriedStoppedHistory(handover({ contextUsage: full }).ctx, NEXT, message('next'))
+    ).toBeNull()
+    const inject = vi.fn<NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']>>()
+    const injecting = handover({ contextUsage: full, inject })
+    await injectStoppedHistory(injecting.ctx, NEXT, message('next'))
+    expect(inject).not.toHaveBeenCalled()
+    expect(injecting.recorded).toEqual([])
   })
 
   it('a steer into a running turn, a slash command or a send with an image delivers none', async () => {

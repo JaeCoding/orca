@@ -81,7 +81,7 @@ export function selectStructuredAgentContextUsage(
   return summarizeStructuredAgentContextFacts({ ...fallback, ...loaded })
 }
 
-function summarizeStructuredAgentContextFacts({
+export function summarizeStructuredAgentContextFacts({
   used: fact,
   window
 }: AgentSessionContextUsage): StructuredAgentContextUsage | null {
