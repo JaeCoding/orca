@@ -286,37 +286,46 @@ describe('what one delivery holds', () => {
     clientMessageId: id,
     words
   })
+  const SHORT = message('go ahead with that')
+  // Quotes double in JSON: each big one is admissible alone (about 200 KiB of a send's 256 KiB).
+  const big = '"'.repeat(100 * 1024)
 
   it('holds every owed message in the order sent while their words fit', () => {
     const owed = [stopped('a', 'one'), stopped('b', 'two')]
-    expect(selectStoppedHistory(owed)).toEqual({
+    expect(selectStoppedHistory(owed, SHORT)).toEqual({
       messages: owed,
       covers: ['a', 'b']
     })
-    expect(selectStoppedHistory([])).toBeNull()
+    expect(selectStoppedHistory([], SHORT)).toBeNull()
   })
 
   it('keeps the newest, then older ones while the whole fits one send, and covers those left out', () => {
-    // Quotes double in JSON: each big one is admissible alone (about 200 KiB of a send's 256 KiB).
-    const big = '"'.repeat(100 * 1024)
     const owed = [
       stopped('a', 'first'),
       stopped('b', big),
       stopped('c', 'third'),
       stopped('d', big)
     ]
-    expect(selectStoppedHistory(owed)).toEqual({
+    expect(selectStoppedHistory(owed, SHORT)).toEqual({
       messages: [owed[0], owed[2], owed[3]],
       covers: ['a', 'b', 'c', 'd']
     })
   })
 
-  it('counts each message with the framing of either transport', () => {
+  it('leaves them all owed when the newest does not fit beside the send', () => {
+    // Each admissible alone; together they would be a send larger than the person could make.
+    expect(
+      selectStoppedHistory([stopped('a', 'first'), stopped('b', big)], message(big))
+    ).toBeNull()
+  })
+
+  it('counts each message with the framing of either transport, and the send beside them', () => {
     // 3,000 one-letter messages: the framing, not the words, decides how many fit.
     const owed = Array.from({ length: 3_000 }, (_, index) => stopped(`m${index}`, 'x'))
-    const delivery = selectStoppedHistory(owed)!
+    const delivery = selectStoppedHistory(owed, SHORT)!
     const fits = Math.floor(
-      MAX_PROMPT_BYTES / (JSON.stringify('x').length + STOPPED_MESSAGE_FRAMING_BYTES)
+      (MAX_PROMPT_BYTES - JSON.stringify('go ahead with that').length) /
+        (JSON.stringify('x').length + STOPPED_MESSAGE_FRAMING_BYTES)
     )
     expect(delivery.messages).toHaveLength(fits)
     expect(delivery.messages.at(-1)).toBe(owed.at(-1))

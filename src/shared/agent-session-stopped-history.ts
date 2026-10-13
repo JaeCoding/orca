@@ -128,38 +128,35 @@ function messageWords(body: AgentJournalMessageItem): string {
 // own interrupted record.
 export const STOPPED_MESSAGE_FRAMING_BYTES = 512
 
-/** One delivery: the newest owed message, and older ones while the whole stays within what one send
- *  can hold (`MAX_PROMPT_BYTES`), in the order sent. It covers every owed message, those left out
- *  included, so none arrives after a newer one. Beside a words-only send it stays far under every
- *  agent's one-line limit. Not budgeted by the agent's context: had the person not pressed Stop,
- *  each of these would have reached the agent anyway, in a turn of its own. */
+/** One delivery: the newest owed message, and older ones while they fit, in the order sent. With
+ *  the send's own words they never exceed what one send can hold (`MAX_PROMPT_BYTES`), so the agent
+ *  is handed nothing larger than a send the person could make; if the newest doesn't fit, all stay
+ *  owed. It covers every owed message, those left out included, so none arrives after a newer one. */
 export type StoppedHistoryDelivery = {
   messages: OwedStoppedMessage[]
   covers: string[]
 }
 
 export function selectStoppedHistory(
-  owed: readonly OwedStoppedMessage[]
+  owed: readonly OwedStoppedMessage[],
+  send: AgentJournalMessageItem
 ): StoppedHistoryDelivery | null {
-  const newest = owed.at(-1)
-  if (!newest) {
-    return null
-  }
   const encoder = new TextEncoder()
-  const cost = (entry: OwedStoppedMessage): number =>
-    encoder.encode(JSON.stringify(entry.words)).length + STOPPED_MESSAGE_FRAMING_BYTES
-  const older: OwedStoppedMessage[] = []
-  let bytes = cost(newest)
-  for (const entry of owed.slice(0, -1).toReversed()) {
-    if (bytes + cost(entry) <= MAX_PROMPT_BYTES) {
-      bytes += cost(entry)
-      older.unshift(entry)
+  const bytes = (words: string): number => encoder.encode(JSON.stringify(words)).length
+  const messages: OwedStoppedMessage[] = []
+  let room = MAX_PROMPT_BYTES - bytes(messageWords(send))
+  for (const entry of owed.toReversed()) {
+    const cost = bytes(entry.words) + STOPPED_MESSAGE_FRAMING_BYTES
+    if (cost <= room) {
+      room -= cost
+      messages.unshift(entry)
+    } else if (messages.length === 0) {
+      return null
     }
   }
-  return {
-    messages: [...older, newest],
-    covers: owed.map((entry) => entry.clientMessageId)
-  }
+  return messages.length > 0
+    ? { messages, covers: owed.map((entry) => entry.clientMessageId) }
+    : null
 }
 
 /** Whether this send's handover delivers the stopped messages owed: a person's ordinary message, a

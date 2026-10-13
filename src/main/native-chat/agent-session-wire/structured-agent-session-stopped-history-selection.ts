@@ -53,7 +53,8 @@ function stoppedHistoryDelivery(
       injected: ctx.journal.stoppedHistory.injected(),
       clearSequence: ctx.journal.context.floor()?.sequence ?? 0,
       body: (id) => ctx.journal.itemBody(agentJournalSubmissionKey(id))
-    })
+    }),
+    body
   )
 }
 

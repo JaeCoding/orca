@@ -238,6 +238,18 @@ describe('stopped messages ride at the front of the next words-only send', () =>
     expect(dispatched()).toEqual(['see', carrying(['first'], 'after')])
   })
 
+  it("a send they would push past one send's size carries nothing; the next send does", async () => {
+    // Quotes double in JSON: each fits a send alone, the two together don't.
+    const big = '"'.repeat(100 * 1024)
+    await start()
+    await stopWhileStarting(big)
+    const large = await nextSend(big)
+    await rig.settleAccepted(large, 'large')
+    await nextSend('go ahead with that')
+
+    expect(dispatched()).toEqual([big, carrying([big], 'go ahead with that')])
+  })
+
   it('a carrier refused before any write leaves them owed: the next send carries them again', async () => {
     await start()
     await stopWhileStarting('first', 'second')
