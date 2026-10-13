@@ -75,7 +75,7 @@ export function applyJournalDispatchRow(
   })
 }
 
-/** A later pending row of the same send replaces what it carries; a malformed list carries none. */
+/** A later pending row of the same send replaces what it carries; a malformed id is dropped. */
 function foldStoppedHistoryCarried(
   state: JournalReducerState,
   row: Extract<JournalRow, { kind: 'dispatch' }>

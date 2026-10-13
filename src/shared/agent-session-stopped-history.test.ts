@@ -300,13 +300,18 @@ describe('what one delivery holds', () => {
     expect(selectStoppedHistory([])).toBeNull()
   })
 
-  it('keeps the newest that fit and covers the older ones left out, so none arrives late', () => {
-    // Quotes double in JSON, so each costs about 600 KiB encoded against the 1 MiB bound.
+  it('keeps the newest, then older ones while they fit one send, and covers those left out', () => {
+    // Quotes double in JSON, so each big one costs about 600 KiB against one send's 256 KiB.
     const big = '"'.repeat(300 * 1024)
-    const owed = [stopped('a', 'first'), stopped('b', big), stopped('c', big)]
+    const owed = [
+      stopped('a', 'first'),
+      stopped('b', big),
+      stopped('c', 'third'),
+      stopped('d', big)
+    ]
     expect(selectStoppedHistory(owed)).toEqual({
-      messages: [owed[2]],
-      covers: ['a', 'b', 'c']
+      messages: [owed[0], owed[2], owed[3]],
+      covers: ['a', 'b', 'c', 'd']
     })
   })
 })

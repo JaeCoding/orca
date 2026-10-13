@@ -1,8 +1,8 @@
 // Stopped messages the agent is still owed, derived from the journal on each handover (host only),
 // and delivered with the person's next send that opens a turn: injected into the agent's own log
 // where it can take them (Codex), else carried at the front of that send. One is covered by an
-// injection record no later row proves refused, or by a carrier's `carries` unless that carrier was
-// refused before anything reached the agent. Words only: a stopped message's images are not replayed.
+// injection record that no later row proves refused, or by a carrier's `carries` unless that carrier
+// was refused before anything reached the agent. Words only: a stopped message's images are not replayed.
 
 import { readAgentSessionFailureFact, type SubmissionRejectionKind } from './agent-session-failure'
 import type {
@@ -14,13 +14,10 @@ import {
   classifyDispatchRejection,
   dispatchWasWithdrawn
 } from './structured-agent-session-dispatch-rejection'
+import { MAX_PROMPT_BYTES } from './rpc-contract/structured-agent-session-message-params'
 
 /** The record Claude writes for its own Stop, carried after each stopped message. */
 export const STOPPED_MESSAGE_INTERRUPTED_MARKER = '[Request interrupted by user]'
-
-// Encoded bytes of one delivery's words. A send admits at most 256 KiB encoded (`MAX_PROMPT_BYTES`),
-// so the newest always fits, and beside a words-only send this stays far under every agent's line.
-const STOPPED_HISTORY_MAX_ENCODED_BYTES = 1024 * 1024
 
 export type StoppedHistoryJournal = {
   submissions: readonly AgentJournalSubmission[]
@@ -79,8 +76,8 @@ function refusedBeforeWrite(carrier: AgentJournalSubmission): boolean {
   if (carrier.dispatchState !== 'rejected' || carrier.answeredInTurn) {
     return false
   }
-  // Proven unwritten where it was refused: a Stop's withdrawal, a write Orca's encoder refused, or
-  // a sign-in Pi checks before recording the prompt.
+  // Proven unwritten where it was refused: a Stop's withdrawal, a child gone before the write, or a
+  // sign-in Pi checks before recording the prompt.
   if (readAgentSessionFailureFact(carrier.rejection)?.neverReachedAgent === true) {
     return true
   }
@@ -131,8 +128,10 @@ function messageWords(body: AgentJournalMessageItem): string {
     .join('\n')
 }
 
-/** One delivery: the newest owed messages whose words fit, in the order sent, and every owed
- *  message it covers, older ones left out included, so none arrives after a newer one. */
+/** One delivery: the newest owed message, and older ones while they add no more than one send can
+ *  hold (`MAX_PROMPT_BYTES`), in the order sent; it covers every owed message, those left out
+ *  included, so none arrives after a newer one. Beside a words-only send this stays far under every
+ *  agent's one-line limit. */
 export type StoppedHistoryDelivery = {
   messages: OwedStoppedMessage[]
   covers: string[]
@@ -141,23 +140,31 @@ export type StoppedHistoryDelivery = {
 export function selectStoppedHistory(
   owed: readonly OwedStoppedMessage[]
 ): StoppedHistoryDelivery | null {
-  if (owed.length === 0) {
+  const newest = owed.at(-1)
+  if (!newest) {
     return null
   }
   const encoder = new TextEncoder()
+  const older: OwedStoppedMessage[] = []
   let bytes = 0
-  let oldest = owed.length
-  while (oldest > 0) {
-    bytes += encoder.encode(JSON.stringify(owed[oldest - 1]!.words)).length
-    if (bytes > STOPPED_HISTORY_MAX_ENCODED_BYTES) {
-      break
+  for (const entry of owed.slice(0, -1).toReversed()) {
+    const cost = encoder.encode(JSON.stringify(carriedText([entry]))).length
+    if (bytes + cost <= MAX_PROMPT_BYTES) {
+      bytes += cost
+      older.unshift(entry)
     }
-    oldest -= 1
   }
   return {
-    messages: owed.slice(oldest),
+    messages: [...older, newest],
     covers: owed.map((entry) => entry.clientMessageId)
   }
+}
+
+/** Each stopped message's words followed by the record Claude writes for its own Stop. */
+function carriedText(messages: readonly OwedStoppedMessage[]): string {
+  return messages
+    .map((entry) => `${entry.words}\n\n${STOPPED_MESSAGE_INTERRUPTED_MARKER}\n\n`)
+    .join('')
 }
 
 /** Whether this send's handover delivers the stopped messages owed: a person's ordinary message, a
@@ -183,8 +190,8 @@ export function withStoppedHistory(
   body: AgentJournalMessageItem,
   messages: readonly OwedStoppedMessage[]
 ): AgentJournalMessageItem {
-  const carried = messages
-    .map((entry) => `${entry.words}\n\n${STOPPED_MESSAGE_INTERRUPTED_MARKER}\n\n`)
-    .join('')
-  return { ...body, blocks: [{ type: 'text', text: `${carried}${messageWords(body)}` }] }
+  return {
+    ...body,
+    blocks: [{ type: 'text', text: `${carriedText(messages)}${messageWords(body)}` }]
+  }
 }
