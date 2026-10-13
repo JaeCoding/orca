@@ -104,7 +104,7 @@ export function useStructuredAgentSession(args: {
     optionSnapshot,
     optionSurface,
     setStructuredOption,
-    sendRefs,
+    sendSource,
     unavailable,
     threadGoal: threadGoalSupport,
     contextUsage: contextUsageSupport,
@@ -126,7 +126,7 @@ export function useStructuredAgentSession(args: {
     mutate,
     ...(launch ? { launch } : {})
   })
-  const sendOptions = useStructuredAgentSessionSendOptions(target, sessionId, launch, sendRefs)
+  const sendOptions = useStructuredAgentSessionSendOptions(sessionId, launch, sendSource)
   // Only a capable host may see `delivery`; a card any host publishes shows, with its actions.
   const queueCapability = useStructuredAgentSessionHostQueuesMessagesState(target)
   const queuedMessageIds = useMemo(

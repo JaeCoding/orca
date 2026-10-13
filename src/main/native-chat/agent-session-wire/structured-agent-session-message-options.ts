@@ -1,9 +1,8 @@
-// A send's model and effort, applied to the turn it starts the way a picker change is applied.
+// A message's model and effort, applied to the turn it starts the way a picker change is applied.
 
 import type { AgentSessionOptionResult } from '../../../shared/agent-session-wire'
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../shared/agent-chat-permission-mode'
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-mutation-context'
-import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 import { recordStructuredAgentSessionOptionIntent } from './structured-agent-session-options-read'
 import { performSetOption } from './structured-agent-session-turns-options'
 import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
@@ -36,52 +35,46 @@ export async function writeStructuredAgentSessionOption(
   }
 }
 
-/** Model first, so the effort lands under it; a value the chat already holds writes nothing. A
- *  failed write is logged and never stops the message, which runs on what the chat holds. */
-export async function applyStructuredAgentSessionSendOptions(
+/** A message's model and effort, applied as it is handed over or its agent starts for it: model
+ *  first, so the effort lands under it, and a value the chat already holds writes nothing. A failed
+ *  write is logged and never stops the message, which runs on what the chat holds. */
+export async function applyStructuredAgentSessionMessageOptions(
   context: StructuredAgentSessionMutationContext,
-  ctx: StructuredAgentSessionOptionWriteContext,
+  sessionId: string,
   options: Readonly<Record<string, string>> | undefined
 ): Promise<void> {
-  const entries = Object.entries(options ?? {}).sort(
+  const session = context.sessions.get(sessionId)
+  const fence = context.deps.store.getRecord(sessionId)?.lease.runtimeFence
+  if (!options || !session || fence === undefined) {
+    return
+  }
+  const ctx: StructuredAgentSessionOptionWriteContext = {
+    sessionId,
+    fence,
+    adapter: context.deps.adapter,
+    persistOptions: (next) =>
+      context.deps.store
+        .replaceSessionOptions({ sessionId, fence, options: next, now: context.now() })
+        .then(() => undefined),
+    publish: () => context.publish(sessionId, session.journal)
+  }
+  const entries = Object.entries(options).sort(
     ([a], [b]) => Number(b === 'model') - Number(a === 'model')
   )
   for (const [key, value] of entries) {
-    if (context.deps.store.getRecord(ctx.sessionId)?.options?.[key] === value) {
+    if (context.deps.store.getRecord(sessionId)?.options?.[key] === value) {
       continue
     }
     const written = await writeStructuredAgentSessionOption(context, ctx, { key, value }).catch(
       (error: unknown) => ({ ok: false as const, error })
     )
     if (!written.ok) {
-      context.deps.logger.warn("applying a send's option failed", {
-        scope: 'send-options',
-        sessionId: ctx.sessionId,
+      context.deps.logger.warn("applying a message's option failed", {
+        scope: 'message-options',
+        sessionId,
         key,
         error: 'error' in written ? written.error : written.refusal
       })
     }
-  }
-}
-
-/** For the queue's own send, which runs outside any mutation. */
-export function structuredAgentSessionOptionWriteContext(
-  context: StructuredAgentSessionMutationContext,
-  session: Pick<StructuredAgentSessionHostSession, 'journal'>,
-  sessionId: string
-): StructuredAgentSessionOptionWriteContext | null {
-  const fence = context.deps.store.getRecord(sessionId)?.lease.runtimeFence
-  if (fence === undefined) {
-    return null
-  }
-  return {
-    sessionId,
-    fence,
-    adapter: context.deps.adapter,
-    persistOptions: (options) =>
-      context.deps.store
-        .replaceSessionOptions({ sessionId, fence, options, now: context.now() })
-        .then(() => undefined),
-    publish: () => context.publish(sessionId, session.journal)
   }
 }

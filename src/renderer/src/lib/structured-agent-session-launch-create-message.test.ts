@@ -198,31 +198,38 @@ describe('the first message owned by create', () => {
     expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
   })
 
-  it("carries the model the host's saved list moves a gone saved one to, as a send does", async () => {
-    mocks.settings = {
-      nativeChatSessionOptions: {
-        claude: { model: 'claude-gone' }
+  it.each([
+    ['new', {}],
+    ['resumed', { resumeFrom: { providerSessionId: 'provider-session-1' } }]
+  ])(
+    "carries the model the host's saved list moves a gone saved one to, %s, as a send does",
+    async (_kind, resume) => {
+      mocks.settings = {
+        nativeChatSessionOptions: {
+          claude: { model: 'claude-gone' }
+        }
+      }
+      const xhigh = [{ value: 'xhigh', label: 'xhigh' }]
+      recordHostModelCatalogSnapshot(target, 'claude', null, {
+        origin: 'probe',
+        fetchedAt: 1,
+        models: [{ id: 'opus[1m]', label: 'Opus', isDefault: true, efforts: xhigh }]
+      })
+      mocks.call.mockImplementation(async () => created())
+      try {
+        const launch = startStructuredAgentLaunch('workspace-1', 'claude', {
+          requestId: newAgentLaunchRequestId(),
+          executionHostId: 'local',
+          prompt: 'opening text',
+          ...resume
+        })
+        await launch.launchResult
+        expect(createParams().options?.model).toBe('opus[1m]')
+      } finally {
+        mocks.settings = {}
       }
     }
-    const xhigh = [{ value: 'xhigh', label: 'xhigh' }]
-    recordHostModelCatalogSnapshot(target, 'claude', null, {
-      origin: 'probe',
-      fetchedAt: 1,
-      models: [{ id: 'opus[1m]', label: 'Opus', isDefault: true, efforts: xhigh }]
-    })
-    mocks.call.mockImplementation(async () => created())
-    try {
-      const launch = startStructuredAgentLaunch('workspace-1', 'claude', {
-        requestId: newAgentLaunchRequestId(),
-        executionHostId: 'local',
-        prompt: 'opening text'
-      })
-      await launch.launchResult
-      expect(createParams().options?.model).toBe('opus[1m]')
-    } finally {
-      mocks.settings = {}
-    }
-  })
+  )
 
   it('returns a refused create once after the new draft, with no later send', async () => {
     const create = deferred<unknown>()

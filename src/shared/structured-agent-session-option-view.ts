@@ -23,14 +23,18 @@ function catalogListsSeedModel(
  * written into the record.
  *
  * The permission mode reads its own way: the held pick, else what the host stated, else the seed.
+ * A host that cannot take a send's model keeps running the chat's own, so that is what shows.
  */
 export function structuredAgentSessionOptionView(
   state: StructuredAgentSessionOptionState,
   seed: Readonly<Record<string, string>> | undefined,
-  held: Readonly<Record<string, string>>
+  held: Readonly<Record<string, string>>,
+  takesSendOptions: boolean
 ): StructuredAgentSessionOptionState {
   const { [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: heldPermission, ...heldSelection } = held
-  const replaced = structuredAgentSessionListedPicks(state, seed, heldSelection)
+  const replaced = takesSendOptions
+    ? structuredAgentSessionListedPicks(state, seed, heldSelection)
+    : null
   const view = modelOptionView(state, seed, { ...heldSelection, ...replaced })
   const permissionMode =
     heldPermission ?? state.permissionMode ?? seed?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID] ?? null
@@ -39,10 +43,11 @@ export function structuredAgentSessionOptionView(
 
 /** The picker of a client that holds no launch selection, such as the phone. */
 export function structuredAgentSessionShownSnapshot(
-  state: StructuredAgentSessionOptionState
+  state: StructuredAgentSessionOptionState,
+  takesSendOptions: boolean
 ): SessionOptionDescriptor[] {
   return structuredAgentSessionOptionSnapshot(
-    structuredAgentSessionOptionView(state, undefined, {})
+    structuredAgentSessionOptionView(state, undefined, {}, takesSendOptions)
   )
 }
 
@@ -100,10 +105,9 @@ export function nearestAgentEffort(
     .sort((a, b) => distance(a) - distance(b) || rank(b) - rank(a))[0]
 }
 
-/** What a send moves a Claude chat to when neither the list the picker shows nor the host's
- *  finished listing names its model (held, else recorded, else seeded): the shown row that listing
- *  marks default, else its first, with the effort moved to the nearest level offered. A row named
- *  by its own id is the session's own unlisted model. Null keeps the model. */
+/** What a send moves a Claude chat to when the host's finished listing does not name its model
+ *  (held, else recorded, else seeded): the listed row marked default, else the first, with the
+ *  effort moved to the nearest level offered. Null keeps the model. */
 export function structuredAgentSessionListedPicks(
   state: StructuredAgentSessionOptionState,
   seed: Readonly<Record<string, string>> | undefined,
@@ -112,15 +116,14 @@ export function structuredAgentSessionListedPicks(
   const { catalog, catalogSource, record, verifiedModelIds: verified = [] } = state
   const tracked = record.model?.value
   const model = held.model ?? (typeof tracked === 'string' ? tracked : seed?.model)
-  const shown = catalog?.models.filter((row) => row.label !== row.id) ?? []
-  const rows = shown.filter((row) => verified.includes(row.id))
+  // Only the listing proves a row: the session's own unlisted model is shown but never listed.
+  const rows = catalog?.models.filter((row) => verified.includes(row.id)) ?? []
   if (
     record.agent !== 'claude' ||
     (catalogSource !== 'host' && catalogSource !== 'live') ||
     !model ||
     rows.length === 0 ||
-    verified.includes(model) ||
-    shown.some((row) => row.id === model)
+    verified.includes(model)
   ) {
     return null
   }
@@ -143,23 +146,25 @@ export function structuredAgentSessionListedPicks(
 /** A pick on its way to the host. */
 export type StructuredAgentSessionPendingPick = { id: string; value: string }
 
-/** The Claude model and effort the composer shows, which every send carries. A pick still on its
- *  way to the host rides it too, so neither write undoes the other whichever lands first. */
+/** The Claude model and effort the composer shows (`snapshot`), which every send carries. A pick
+ *  still on its way to the host rides it too, so neither write undoes the other whichever lands
+ *  first; a model pick rides alone, as the effort shown belongs to the model it replaces. */
 export function structuredAgentSessionSendSelection(
-  view: StructuredAgentSessionOptionState,
+  agent: string,
+  snapshot: readonly SessionOptionDescriptor[],
   pending: StructuredAgentSessionPendingPick | null
 ): Record<string, string> | undefined {
-  if (view.record.agent !== 'claude') {
+  if (agent !== 'claude') {
     return undefined
   }
   if (pending?.id === 'model') {
     return { model: pending.value }
   }
-  const model = view.record.model?.value
-  if (typeof model !== 'string') {
-    return undefined
+  const shown = (id: string): string | undefined => {
+    const kind = snapshot.find((descriptor) => descriptor.id === id)?.kind
+    return kind?.type === 'select' ? kind.currentValue : undefined
   }
-  const effort =
-    pending?.id === 'effort' ? pending.value : view.record.valuesByModel[model]?.effort?.value
-  return { model, ...(typeof effort === 'string' ? { effort } : {}) }
+  const model = shown('model')
+  const effort = pending?.id === 'effort' ? pending.value : shown('effort')
+  return model ? { model, ...(effort ? { effort } : {}) } : undefined
 }

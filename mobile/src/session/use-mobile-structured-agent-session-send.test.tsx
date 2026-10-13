@@ -163,7 +163,10 @@ describe('mobile structured send actions', () => {
     hostSupport = structuredAgentSessionHostSupport(
       takesOptions ? [AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY] : []
     )
-    const high = [{ value: 'high', label: 'High' }]
+    const high = [
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' }
+    ]
     sendRequest.mockImplementation(async (method) =>
       method === 'agentSession.send'
         ? sendResult('accepted')
@@ -193,6 +196,51 @@ describe('mobile structured send actions', () => {
         expect(fieldsOf(params)).not.toHaveProperty('options')
       }
     }
+  })
+
+  it('takes an effort the replacement it shows offers, and sends on that replacement', async () => {
+    agent = 'claude'
+    hostSupport = structuredAgentSessionHostSupport([AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY])
+    const efforts = [
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' }
+    ]
+    sendRequest.mockImplementation(async (method) =>
+      method === 'agentSession.send'
+        ? sendResult('accepted')
+        : method === 'agentSession.modelCatalog'
+          ? ok({
+              origin: 'probe',
+              fetchedAt: 1,
+              models: [{ id: 'opus[1m]', label: 'Opus', isDefault: true, efforts }]
+            })
+          : method === 'agentSession.options'
+            ? ok({
+                // A stopped chat lists the host's rows and its own model.
+                models: [
+                  { id: 'opus[1m]', label: 'Opus', isDefault: true, efforts },
+                  { id: 'claude-gone', label: 'claude-gone', isDefault: false, efforts: [] }
+                ],
+                current: { model: 'claude-gone', effort: 'high' }
+              })
+            : ok({})
+    )
+    await mountSession()
+    await vi.waitFor(async () => {
+      await act(async () => {})
+      expect(
+        hook!.optionSnapshot.find((descriptor) => descriptor.id === 'model')?.kind
+      ).toMatchObject({ currentValue: 'opus[1m]' })
+    })
+    await act(async () => {
+      await hook!.setStructuredOption('effort', 'low')
+    })
+    const picks = sendRequest.mock.calls.filter(([method]) => method === 'agentSession.setOption')
+    expect(picks.map(([, params]) => fieldsOf(params).value)).toEqual(['low'])
+    await act(async () => {
+      expect(await hook!.sendWithOutcome('hello')).toBe('accepted')
+    })
+    expect(fieldsOf(calls()[0]![1]).options).toMatchObject({ model: 'opus[1m]' })
   })
 
   it("sends a command the chat's own agent runs as a message, though Codex's host claims it", async () => {

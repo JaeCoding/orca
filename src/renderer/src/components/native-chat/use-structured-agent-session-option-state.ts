@@ -12,7 +12,12 @@ import {
   type StructuredAgentSessionOptionState
 } from '../../../../shared/structured-agent-session-options'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
-import type { StructuredAgentSessionPendingPick } from '../../../../shared/structured-agent-session-option-view'
+import {
+  structuredAgentSessionOptionView,
+  type StructuredAgentSessionPendingPick
+} from '../../../../shared/structured-agent-session-option-view'
+import { AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY } from '../../../../shared/agent-session-create-capabilities'
+import { useStructuredAgentSessionHostCapability } from '@/runtime/structured-agent-session-host-capability'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { readHostModelCatalogSnapshot } from '@/runtime/host-model-catalog-snapshots'
 import {
@@ -199,8 +204,23 @@ export function useStructuredAgentSessionOptionState(args: {
 
   // An options answer made before the account's listing landed listed none of it.
   const rereadOptions = useCallback(() => optionsReadRef.current?.run(), [])
+  const takesSendOptions = useStructuredAgentSessionHostCapability(
+    target,
+    AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY
+  )
+  // What the picker shows and a send carries, for this session's host.
+  const optionView = useCallback(
+    (
+      state: StructuredAgentSessionOptionState,
+      seed: Readonly<Record<string, string>> | undefined,
+      held: Readonly<Record<string, string>>
+    ) => structuredAgentSessionOptionView(state, seed, held, takesSendOptions),
+    [takesSendOptions]
+  )
 
   return {
+    optionView,
+    takesSendOptions,
     conversationSupport,
     rereadOptions,
     optionState,

@@ -1,7 +1,7 @@
-// A send's carried model and effort against the real host, store and journal: applied to the turn
-// it starts (recorded before a start, written to a running child), skipped when the chat already
-// holds it, never stopping the message, part of the operation's fingerprint, and kept on a queued
-// card until the card goes out.
+// A send's carried model and effort against the real host, store and journal: kept with the
+// message and applied as it is handed over (recorded before a start, written to a running child),
+// skipped when the chat already holds it, never stopping the message, part of the operation's
+// fingerprint, and kept on a queued card until the card goes out.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
@@ -37,6 +37,10 @@ afterEach(() => rig.dispose())
 
 function recordedOptions(): Readonly<Record<string, string>> | undefined {
   return rig.store.getRecord(SESSION)?.options
+}
+
+async function handedOver(id: string): Promise<void> {
+  await eventually(async () => expect((await rig.submission(id))?.handedOverAt).toBeDefined())
 }
 
 /** A running child with nothing in flight. */
@@ -80,18 +84,50 @@ describe('a send carrying its model and effort to a chat at rest', () => {
 })
 
 describe('a send carrying its model and effort', () => {
-  it('writes them to a running child, model first, and skips what the chat already holds', async () => {
+  it('writes them to a running child as it is handed over, model first, skipping what the chat holds', async () => {
     await idleRunningChild()
-    await rig.send('switch', undefined, { carried: PICKED }).result
+    const first = rig.send('switch', undefined, { carried: PICKED })
+    await first.result
+    await handedOver(first.id)
     expect(vi.mocked(rig.setOption).mock.calls.map(([input]) => input.key)).toEqual([
       'model',
       'effort'
     ])
     expect(recordedOptions()).toMatchObject({ effort: 'high' })
+    await rig.settleAccepted(first.id, 'switch')
 
     vi.mocked(rig.setOption).mockClear()
-    await rig.send('same again', undefined, { carried: { effort: 'high' } }).result
+    const again = rig.send('same again', undefined, { carried: { effort: 'high' } })
+    await again.result
+    await handedOver(again.id)
     expect(rig.setOption).not.toHaveBeenCalled()
+  })
+
+  it("runs an accepted message on its own selection, though a later pick changed the chat's", async () => {
+    const starting = await createQueuedMessageTestRig({ starting: true })
+    try {
+      const sent = starting.send('mine', undefined, { carried: { model: 'gpt-a' } })
+      expect(await sent.result).toMatchObject({ ok: true })
+      await eventually(() => expect(starting.starts).toHaveBeenCalled())
+      // Picked while the message waits for its agent to start.
+      const fields = { key: 'model', value: 'gpt-b' }
+      await starting.host.setOption(CALLER, {
+        envelope: starting.envelope(fields, 'agentSession.setOption', hostTestOperationId()),
+        ...fields
+      })
+      expect(starting.store.getRecord(SESSION)?.options?.model).toBe('gpt-b')
+      await starting.proveStart()
+      await eventually(async () =>
+        expect((await starting.submission(sent.id))?.handedOverAt).toBeDefined()
+      )
+      const setOption = vi.mocked(starting.setOption)
+      expect(setOption.mock.calls.at(-1)?.[0]).toMatchObject({ key: 'model', value: 'gpt-a' })
+      expect(setOption.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        starting.dispatch.mock.invocationCallOrder.at(-1) ?? 0
+      )
+    } finally {
+      await starting.dispose()
+    }
   })
 
   it('still sends when the write fails, on what the chat holds', async () => {
@@ -148,10 +184,34 @@ describe('a queued send carrying its model and effort', () => {
   })
 
   it('applies them when the card is sent by hand', async () => {
-    const { draftId } = await queued({ model: 'gpt-picked' })
+    const { working, draftId } = await queued({ model: 'gpt-picked' })
     expect(await rig.sendNow(draftId)).toMatchObject({ ok: true })
+    await rig.settleAccepted(working, 'a')
+    await handedOver(await rig.handoffId(draftId))
     expect(rig.setOption).toHaveBeenCalledWith(
       expect.objectContaining({ key: 'model', value: 'gpt-picked' })
     )
+  })
+})
+
+describe('a send kept as a card because Orca stopped before handing it over', () => {
+  it('keeps its model and effort on the card', async () => {
+    const kept = await createQueuedMessageTestRig({ restartable: true })
+    try {
+      await kept.host.close(SESSION, 'evict')
+      const startsBefore = kept.starts.mock.calls.length
+      kept.holdNextStart()
+      const sent = kept.send('picked', undefined, { carried: PICKED })
+      expect(await sent.result).toMatchObject({ ok: true })
+      await eventually(() => expect(kept.starts.mock.calls.length).toBeGreaterThan(startsBefore))
+      await kept.crashRestartHostProcess()
+      expect(await kept.drafts()).toEqual([{ messageId: sent.id, state: 'waiting' }])
+      const journal = kept.host.collaboratorsForTests().sessions.get(SESSION)?.journal
+      expect(journal?.queuedMessages.list()).toMatchObject([
+        { messageId: sent.id, options: PICKED }
+      ])
+    } finally {
+      await kept.dispose()
+    }
   })
 })

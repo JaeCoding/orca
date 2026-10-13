@@ -20,6 +20,7 @@ import { sendMobileStructuredAgentSessionMessage } from './mobile-structured-age
 import type { MobileStructuredSends } from './use-mobile-structured-sends'
 import { structuredSessionOperationId } from './structured-session-operation-id'
 import { timeoutForDeadline } from './mobile-structured-agent-session-rpc'
+import { structuredAgentSessionSendSelection } from '../../../src/shared/structured-agent-session-option-view'
 import {
   pendingStructuredApproval,
   pendingStructuredQuestion
@@ -57,8 +58,8 @@ export function useMobileStructuredSendWithOutcome(args: {
     'snapshot' | 'setOption' | 'invokeAction' | 'conversationCommands'
   >
   onSendError: MobileNativeChatSendErrorReporter
-  /** The model and effort the picker shows, which each send carries; absent for an older host. */
-  sendOptions?: () => Readonly<Record<string, string>> | undefined
+  /** Each send carries the model and effort the picker shows; an older host takes neither. */
+  carriesOptions?: boolean
 }): (
   text: string,
   images?: string[],
@@ -76,7 +77,7 @@ export function useMobileStructuredSendWithOutcome(args: {
     hold,
     onSendError,
     queueCapable,
-    sendOptions,
+    carriesOptions,
     sessionId,
     stateRef,
     stopping
@@ -141,7 +142,11 @@ export function useMobileStructuredSendWithOutcome(args: {
         queuedAt: Date.now(),
         ...(stopping ? { sentWhileStopping: true as const } : {})
       }
-      const options = sendOptions?.()
+      // A pick on its way holds the send, so the picker shows what the chat holds.
+      const options =
+        carriesOptions && agent
+          ? structuredAgentSessionSendSelection(agent, controller.snapshot, null)
+          : undefined
       const outcome = await sendMobileStructuredAgentSessionMessage({
         client,
         sessionId,
@@ -174,7 +179,7 @@ export function useMobileStructuredSendWithOutcome(args: {
       hold,
       onSendError,
       queueCapable,
-      sendOptions,
+      carriesOptions,
       sessionId,
       stateRef,
       stopping

@@ -41,10 +41,6 @@ import type { MobileNativeChatSendErrorReporter } from './use-mobile-native-chat
 import { useMobileStructuredQueuedMessageControls } from './use-mobile-structured-queued-message-controls'
 import { useMobileStructuredBackgroundTasks } from './use-mobile-structured-background-tasks'
 import { useMobileStructuredSends } from './use-mobile-structured-sends'
-import {
-  structuredAgentSessionOptionView,
-  structuredAgentSessionSendSelection
-} from '../../../src/shared/structured-agent-session-option-view'
 
 export function useMobileStructuredAgentSession(args: {
   client: RpcClient | null
@@ -109,7 +105,8 @@ export function useMobileStructuredAgentSession(args: {
     enabled,
     fence: state.fence,
     mutate,
-    optionStamp
+    optionStamp,
+    takesSendOptions: hostSupport?.sendOptions === true
   })
   const { conversationCommands, invokeStructuredOption, optionSnapshot, setStructuredOption } =
     options
@@ -183,16 +180,6 @@ export function useMobileStructuredAgentSession(args: {
       stopPressed: stopPress.pressed
     }) === 'stopping'
   const stopRequestInFlight = isWorking && stopPress.pressed
-  const { optionStateRef } = options
-  // A pick on its way holds the composer's send, so the picker shows what the chat holds.
-  const sendSelection = useCallback(
-    () =>
-      structuredAgentSessionSendSelection(
-        structuredAgentSessionOptionView(optionStateRef.current, undefined, {}),
-        null
-      ),
-    [optionStateRef]
-  )
   const sendWithOutcome = useMobileStructuredSendWithOutcome({
     agent,
     client,
@@ -207,7 +194,7 @@ export function useMobileStructuredAgentSession(args: {
     commandPending: commandPendingRef,
     controller: sendController,
     onSendError,
-    ...(hostSupport?.sendOptions ? { sendOptions: sendSelection } : {})
+    carriesOptions: hostSupport?.sendOptions === true
   })
   const turnIndicator = useMemo(
     () => ({

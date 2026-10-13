@@ -6,7 +6,11 @@ import {
   prepareLegacyStructuredLaunchPrompts
 } from './structured-agent-session-launch-prompt'
 import type { StructuredAgentLaunchReceipt } from './structured-agent-session-launch-recovery'
-import { structuredAgentSessionListedPicks } from '../../../shared/structured-agent-session-option-view'
+import {
+  structuredAgentSessionOptionView,
+  structuredAgentSessionSendSelection
+} from '../../../shared/structured-agent-session-option-view'
+import { structuredAgentSessionOptionSnapshot } from '../../../shared/structured-agent-session-options'
 import { firstFrameOptionState } from '@/components/native-chat/use-structured-agent-session-option-state'
 import {
   applyStructuredLaunchHeldOptions,
@@ -46,23 +50,31 @@ export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchStat
   notifyStructuredLaunchListeners()
 }
 
-/** Picks held so far, and what the host's saved list moves a model it no longer names to: a first
- *  message starts its turn on the model the chat shows, as a later send does. */
+/** Picks held so far, and the model and effort the chat shows: a first message starts its turn
+ *  on them, as a later send does. */
 function structuredLaunchCreateOptions(
   state: StructuredLaunchState
 ): Readonly<Record<string, string>> | undefined {
   const { intent, selection } = state
-  // A resumed conversation runs the model it ran; only a new one starts from the saved selection.
-  const shown = intent.params.resumeFrom
-    ? null
-    : firstFrameOptionState(intent.agent, intent.target, {
-        newLaunch: true,
-        worktree: intent.params.worktree,
-        seedsModel: intent.seedOptions?.model !== undefined
-      })
+  const firstFrame = firstFrameOptionState(intent.agent, intent.target, {
+    newLaunch: !intent.params.resumeFrom,
+    worktree: intent.params.worktree,
+    seedsModel: intent.seedOptions?.model !== undefined
+  })
+  // Create has always carried options, so any host takes what the chat shows.
+  const view = structuredAgentSessionOptionView(
+    firstFrame,
+    intent.seedOptions,
+    selection.held,
+    true
+  )
   const options = {
     ...selection.held,
-    ...(shown && structuredAgentSessionListedPicks(shown, intent.seedOptions, selection.held))
+    ...structuredAgentSessionSendSelection(
+      intent.agent,
+      structuredAgentSessionOptionSnapshot(view),
+      null
+    )
   }
   return Object.keys(options).length ? options : undefined
 }

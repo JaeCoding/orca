@@ -49,10 +49,7 @@ import {
   IN_PROCESS_OPTIONS_READER,
   type StructuredAgentSessionOptionsReader
 } from './structured-agent-session-options-read'
-import {
-  applyStructuredAgentSessionSendOptions,
-  writeStructuredAgentSessionOption
-} from './structured-agent-session-send-options'
+import { writeStructuredAgentSessionOption } from './structured-agent-session-message-options'
 
 export function sendStructuredAgentSessionTurn(
   context: StructuredAgentSessionMutationContext,
@@ -84,17 +81,14 @@ export function sendStructuredAgentSessionTurn(
     {
       ...plan,
       run: (ctx) =>
-        runQueueableStructuredAgentSessionSend(context, ctx, params, async () => {
-          const blocked = structuredAgentSessionSendBlock(
-            context.deps.store.getRecord(ctx.sessionId)
-          )
-          if (blocked) {
-            return blocked
-          }
-          // Before the message is accepted, so the start or hand-over it wakes runs on them.
-          await applyStructuredAgentSessionSendOptions(context, ctx, params.options)
-          return plan.run(ctx)
-        })
+        runQueueableStructuredAgentSessionSend(
+          context,
+          ctx,
+          params,
+          async () =>
+            structuredAgentSessionSendBlock(context.deps.store.getRecord(ctx.sessionId)) ??
+            (await plan.run(ctx))
+        )
     },
     sendPreparation(context, params.envelope, arrival)
   )

@@ -262,8 +262,6 @@ export type QueuedMessageDrainDeps = {
   conversationFence: (sessionId: string) => number
   /** The consumed submission is ordinary #22821 work from here on. */
   wakeDelivery: (sessionId: string) => void
-  /** The model and effort the card's send carried, applied to the turn it starts. */
-  applySendOptions: (sessionId: string, options: Readonly<Record<string, string>>) => Promise<void>
   logger: StructuredAgentSessionLogger
 }
 
@@ -352,9 +350,6 @@ export class StructuredAgentSessionQueuedMessageDrain {
     if (this.disposed || !next) {
       return
     }
-    if (next.options) {
-      await this.deps.applySendOptions(sessionId, next.options)
-    }
     // Always a fresh id: the submission names its draft by `queuedMessageId`, never by id equality.
     const submissionId = createStructuredAgentSessionOperationId(randomUUID)
     try {
@@ -365,6 +360,7 @@ export class StructuredAgentSessionQueuedMessageDrain {
           origin: 'host',
           payloadFingerprint: next.fingerprint,
           body: next.body,
+          ...(next.options ? { options: next.options } : {}),
           fence,
           handoverRecorded: true
         },

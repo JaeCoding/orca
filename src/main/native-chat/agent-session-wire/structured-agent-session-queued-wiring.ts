@@ -16,10 +16,6 @@ import {
 } from './structured-agent-session-queued-mutations'
 import { deferredStructuredAgentSessionLogger } from './structured-agent-session-logger'
 import {
-  applyStructuredAgentSessionSendOptions,
-  structuredAgentSessionOptionWriteContext
-} from './structured-agent-session-send-options'
-import {
   holdQueuedStructuredAgentMessageEdit,
   republish,
   updateQueuedStructuredAgentMessage
@@ -41,13 +37,6 @@ export function wireStructuredAgentSessionQueuedMessages(
     conversationFence: (sessionId) =>
       structuredAgentSessionConversationFence(context().deps.store, sessionId),
     wakeDelivery: (sessionId) => context().wakeDelivery(sessionId),
-    applySendOptions: async (sessionId, options) => {
-      const session = sessions.get(sessionId)
-      const ctx = session && structuredAgentSessionOptionWriteContext(context(), session, sessionId)
-      if (ctx) {
-        await applyStructuredAgentSessionSendOptions(context(), ctx, options)
-      }
-    },
     // Read lazily, like the rest of this wiring: the host's deps are not assigned yet.
     logger: deferredStructuredAgentSessionLogger(() => context().deps.logger)
   })
