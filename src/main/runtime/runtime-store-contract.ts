@@ -81,6 +81,7 @@ export type RuntimeStore = {
   getMobileClientTabSelections?: Store['getMobileClientTabSelections']
   setMobileClientTabSelections?: Store['setMobileClientTabSelections']
   getSettings(): {
+    setupScriptLaunchMode?: GlobalSettings['setupScriptLaunchMode']
     workspaceDir: string
     nestWorkspaces: boolean
     // Read by worktree placement: decides whether this project's worktrees

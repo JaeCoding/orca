@@ -109,14 +109,15 @@ export class OrcaRuntimeWithCreateManagedWorktree extends OrcaRuntimeWithGetWork
           invalidateResolvedWorktrees: () => this.invalidateResolvedWorktreeCache(),
           notifyWorktreesChanged: (repoId) => this.notifyWorktreesChanged(repoId),
           emitCreated: (event) => this.emitWorktreeLifecycle(event),
-          activate: (repoId, worktreeId, setup, startup) =>
+          activate: (repoId, worktreeId, setup, startup, providesInitialSurface) =>
             this.notifyActivateWorktree(
               repoId,
               worktreeId,
               setup,
               startup,
               undefined,
-              args.navigation
+              args.navigation,
+              providesInitialSurface
             )
         }
       })
@@ -221,14 +222,22 @@ export class OrcaRuntimeWithCreateManagedWorktree extends OrcaRuntimeWithGetWork
         pasteDraft: (handle, draft) => this.pasteStartupDraftWhenReady(handle, draft),
         sendFollowup: (handle, followup) => this.sendStartupFollowupWhenReady(handle, followup),
         provision: (options) => this.provisionManagedWorktreeTerminals(options, worktree),
-        activate: (repoId, worktreeId, startup, failedSetup, failedDefaultTabs) =>
+        activate: (
+          repoId,
+          worktreeId,
+          startup,
+          failedSetup,
+          failedDefaultTabs,
+          providesInitialSurface
+        ) =>
           this.notifyActivateWorktree(
             repoId,
             worktreeId,
             failedSetup,
             startup,
             failedDefaultTabs,
-            args.navigation
+            args.navigation,
+            providesInitialSurface
           )
       }
     })
