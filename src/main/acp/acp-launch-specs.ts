@@ -87,6 +87,12 @@ export type AcpLaunchSpec = {
   supportsVersion?(version: string): boolean
   /** Where the agent installs its own binary, searched after PATH. */
   installDirectories(input: { env: Readonly<Record<string, string>>; homePath: string }): string[]
+  /** A pinned copy Orca installs under its own data folder, searched last. A chat start installs it
+   *  when no other copy is found; a spec with one names no `supportsVersion`. */
+  managedRuntime?: {
+    folder(dataDirectory: string): string
+    materialize(dataDirectory: string, signal?: AbortSignal): Promise<void>
+  }
   /** The session config option through which the agent enforces the Agent Permissions posture
    *  itself, and its values; Orca then answers none of its permission requests for the person. */
   permissionModeConfig?: { configId: string; ask: string; full: string }

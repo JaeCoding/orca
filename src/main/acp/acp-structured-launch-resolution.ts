@@ -71,6 +71,8 @@ export type AcpStructuredLaunchPartDeps = {
   /** The environment the child process inherits at spawn; this process's own by default. */
   inheritedEnv?: NodeJS.ProcessEnv
   probeVersion?: typeof probeAgentCliVersion
+  /** Orca's data folder, which holds the spec's managed runtime; none searches no managed copy. */
+  dataDirectory?: string
 } & Pick<AcpLaunchVisualsDeps, 'logger'>
 
 /** What a launch's binary and environment are read from; a catalog probe reads the same. */
@@ -81,11 +83,14 @@ export type AcpLaunchInvocationDeps = {
   resolveLaunchEnv?: (agent: string) => Record<string, string>
   /** The user's per-agent Command setting, re-read per acquisition; none runs the stock binary. */
   resolveCommandSettings?: () => StructuredAgentCommandSettings
-} & Pick<AcpStructuredLaunchPartDeps, 'resolveCommand' | 'homePath' | 'inheritedEnv'>
+} & Pick<
+  AcpStructuredLaunchPartDeps,
+  'resolveCommand' | 'homePath' | 'inheritedEnv' | 'dataDirectory'
+>
 
 /** The binary a launch with `env` spawns: the user's Command setting when set, else the stock
- *  binary from PATH, then the agent's own install directories. A create's version check resolves
- *  through here too, so it asks about the same file. */
+ *  binary from PATH, then the agent's own install directories, then its managed runtime. A create's
+ *  version check resolves through here too, so it asks about the same file. */
 export function resolveAcpLaunchCommand(
   spec: AcpLaunchSpec,
   env: Readonly<Record<string, string>>,
@@ -93,10 +98,16 @@ export function resolveAcpLaunchCommand(
     commandSettings?: StructuredAgentCommandSettings
     resolveCommand?: typeof resolveCliCommand
     homePath?: string
+    dataDirectory?: string
   } = {}
 ): string {
   const homePath = env.HOME ?? env.USERPROFILE ?? options.homePath ?? homedir()
-  const pathEnv = [env.PATH ?? env.Path, ...spec.installDirectories({ env, homePath })]
+  const { dataDirectory } = options
+  const pathEnv = [
+    env.PATH ?? env.Path,
+    ...spec.installDirectories({ env, homePath }),
+    dataDirectory && spec.managedRuntime?.folder(dataDirectory)
+  ]
     .filter((entry): entry is string => Boolean(entry))
     .join(delimiter)
   return resolveStructuredAgentCommand(
@@ -181,7 +192,8 @@ export function acpStructuredLaunchPart(
         resolveCommandSettings: basis.commandSettings,
         ...(deps.resolveCommand ? { resolveCommand: deps.resolveCommand } : {}),
         ...(deps.homePath ? { homePath: deps.homePath } : {}),
-        ...(deps.inheritedEnv ? { inheritedEnv: deps.inheritedEnv } : {})
+        ...(deps.inheritedEnv ? { inheritedEnv: deps.inheritedEnv } : {}),
+        ...(deps.dataDirectory ? { dataDirectory: deps.dataDirectory } : {})
       }
     )
     const cwd = await basis.launchDirectory()
