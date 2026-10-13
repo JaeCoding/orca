@@ -5,6 +5,7 @@ import type {
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import { shouldAutoCreateInitialTerminal } from '@/components/terminal/initial-terminal'
 import { isTerminalWorkspaceEmptiedOnPurpose } from '../../../shared/closed-terminal-tab-tombstones'
+import { shouldSeedWorktreePrimaryTerminal } from '../../../shared/worktree-first-surface'
 import { createSequencedSetupAgentCommands } from '../../../shared/setup-agent-sequencing'
 import { getSetupRunnerCommandPlatformForPath } from '../../../shared/setup-runner-command'
 import { agentKindToTuiAgent } from '../../../shared/agent-kind'
@@ -141,18 +142,17 @@ export function ensureWorktreeHasInitialTerminal(
   }
 
   const hasExplicitLaunchWork = Boolean(sequencedStartup || setup || issueCommand)
-  // Why: a caller opening its own primary surface (a structured native chat) asked for that surface
-  // alone. Setup launched in its own tab needs no shell to attach to, so seeding one leaves a stray
-  // "Terminal 1" beside the chat. Splits and issue automation still need a pane to split from.
-  const setupNeedsHostTerminal =
-    setup !== undefined &&
-    (useAppStore.getState().settings?.setupScriptLaunchMode ?? 'new-tab') !== 'new-tab'
   if (
-    opts?.callerProvidesSurface === true &&
     renderableTabCount === 0 &&
-    !sequencedStartup &&
-    !issueCommand &&
-    !setupNeedsHostTerminal &&
+    !shouldSeedWorktreePrimaryTerminal({
+      hasPrimarySurface: false,
+      callerProvidesSurface: opts?.callerProvidesSurface === true,
+      startupNeedsTerminal: sequencedStartup !== undefined,
+      issueCommandNeedsTerminal: issueCommand !== undefined,
+      ...(setup
+        ? { setupLaunchMode: useAppStore.getState().settings?.setupScriptLaunchMode ?? 'new-tab' }
+        : {})
+    }) &&
     !defaultTabs?.tabs.length &&
     opts?.createNewTerminalForStartup !== true
   ) {

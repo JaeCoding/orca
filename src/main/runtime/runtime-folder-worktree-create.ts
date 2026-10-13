@@ -1,4 +1,5 @@
 import { paneIdentity } from './runtime-terminal-pane-identity'
+import { shouldSeedWorktreePrimaryTerminal } from '../../shared/worktree-first-surface'
 import { randomUUID } from 'node:crypto'
 import { getProjectHostSetupWorktreeMeta } from '../../shared/project-host-setup-lookup'
 import { resolveWorktreeCreateDisplayNameRequest } from '../ipc/worktree-logic'
@@ -41,7 +42,8 @@ type RuntimeFolderWorktreeCreateDeps = {
     repoId: string,
     worktreeId: string,
     setup?: undefined,
-    startup?: WorktreeStartupLaunch
+    startup?: WorktreeStartupLaunch,
+    providesInitialSurface?: boolean
   ) => void
 }
 
@@ -170,14 +172,17 @@ export async function createRuntimeFolderWorktree(args: {
       repo.id,
       worktree.id,
       undefined,
-      args.startup && !didSpawnStartup ? args.startup : undefined
+      args.startup && !didSpawnStartup ? args.startup : undefined,
+      ...(args.createdWithAgent !== undefined && !args.startup ? ([true] as const) : [])
     )
   }
   if (
     (!shouldActivate || deps.provisionInBackground?.() === true) &&
     deps.ptySpawnAvailable &&
-    !didSpawnStartup &&
-    !args.createdWithAgent
+    shouldSeedWorktreePrimaryTerminal({
+      hasPrimarySurface: didSpawnStartup,
+      callerProvidesSurface: args.createdWithAgent !== undefined
+    })
   ) {
     try {
       await deps.createTerminal(`id:${worktree.id}`, { surfaceOwner: false })

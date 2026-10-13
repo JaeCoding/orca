@@ -1,4 +1,5 @@
 import { paneIdentity } from './runtime-terminal-pane-identity'
+import { shouldSeedWorktreePrimaryTerminal } from '../../shared/worktree-first-surface'
 import type { CreateWorktreeResult } from '../../shared/worktree/create-types'
 import type { Repo } from '../../shared/repo-types'
 import type { TuiAgent } from '../../shared/tui-agent'
@@ -35,7 +36,8 @@ type Ports = {
     worktreeId: string,
     setup?: CreateWorktreeResult['setup'],
     startup?: WorktreeStartupLaunch,
-    defaultTabs?: CreateWorktreeResult['defaultTabs']
+    defaultTabs?: CreateWorktreeResult['defaultTabs'],
+    providesInitialSurface?: boolean
   ) => void
 }
 
@@ -126,6 +128,7 @@ export async function startRuntimeLocalWorktreeTerminals(args: {
   if (shouldActivate) {
     const provisionInBackground = ports.provisionInBackground?.() === true
     const runtimeWillProvision =
+      (request.awaitTerminalProvisioning === true && ports.canSpawn) ||
       (provisionInBackground && ports.canSpawn) ||
       (didSpawnStartup && Boolean(setup || defaultTabs))
     if (runtimeWillProvision) {
@@ -149,7 +152,8 @@ export async function startRuntimeLocalWorktreeTerminals(args: {
       worktree.id,
       activationSetup,
       startup && !didSpawnStartup ? startup : undefined,
-      runtimeWillProvision ? undefined : defaultTabs
+      runtimeWillProvision ? undefined : defaultTabs,
+      ...(args.createdWithAgent !== undefined && !startup ? ([true] as const) : [])
     )
   } else if (ports.canSpawn && (setup || defaultTabs || didSpawnStartup)) {
     const provisioning = ports.provision({
@@ -166,7 +170,13 @@ export async function startRuntimeLocalWorktreeTerminals(args: {
         didSpawnSetup = true
       }
     }
-  } else if (ports.canSpawn && !args.createdWithAgent) {
+  } else if (
+    ports.canSpawn &&
+    shouldSeedWorktreePrimaryTerminal({
+      hasPrimarySurface: didSpawnStartup,
+      callerProvidesSurface: args.createdWithAgent !== undefined
+    })
+  ) {
     try {
       await ports.createTerminal(`id:${worktree.id}`, { surfaceOwner: false })
     } catch (error) {
@@ -208,6 +218,8 @@ function provisionArgs(
     ...(args.defaultTabs ? { defaultTabs: args.defaultTabs } : {}),
     primaryTerminalHandle,
     hasStartupTerminal,
+    callerProvidesSurface: args.createdWithAgent !== undefined,
+    startupNeedsTerminal: args.startup !== undefined,
     setupCommandPlatform: setupPlatform(args.setup, 'posix'),
     observeSetupCompletion: args.request.observeSetupCompletion,
     ...(wrappedSetupCommand ? { wrappedSetupCommand } : {})

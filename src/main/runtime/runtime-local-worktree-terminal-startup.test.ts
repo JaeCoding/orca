@@ -89,6 +89,42 @@ describe('startRuntimeLocalWorktreeTerminals reserved startup pane', () => {
 
 describe('startRuntimeLocalWorktreeTerminals default shell seeding', () => {
   it.each([false, true])(
+    'awaits host setup provisioning for a promised chat (activate=%s)',
+    async (activate) => {
+      const { ports } = createPorts()
+      const provisioned = Promise.withResolvers<{
+        setupSpawned: boolean
+        setupTerminalHandle: string | null
+      }>()
+      ports.provision = vi.fn(() => provisioned.promise)
+      const result = startRuntimeLocalWorktreeTerminals({
+        request: { repoSelector: repo.id, name: 'chat', activate, awaitTerminalProvisioning: true },
+        repo,
+        worktree,
+        createdWithAgent: 'codex',
+        setup: { runnerScriptPath: '/repo/setup.sh', envVars: {} },
+        ports
+      })
+      expect(ports.provision).toHaveBeenCalledWith(
+        expect.objectContaining({ callerProvidesSurface: true, hasStartupTerminal: false })
+      )
+      expect(ports.activate).not.toHaveBeenCalled()
+      provisioned.resolve({ setupSpawned: true, setupTerminalHandle: 'setup-1' })
+      expect(await result).toMatchObject({ didSpawnSetup: true, setupTerminalHandle: 'setup-1' })
+      expect(ports.createTerminal).not.toHaveBeenCalled()
+      if (activate) {
+        expect(ports.activate).toHaveBeenCalledWith(
+          repo.id,
+          worktree.id,
+          undefined,
+          undefined,
+          undefined,
+          true
+        )
+      }
+    }
+  )
+  it.each([false, true])(
     'provisions a headless activated workspace without a viewer (setup=%s)',
     async (withSetup) => {
       const { ports } = createPorts()
