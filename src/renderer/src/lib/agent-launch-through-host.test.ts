@@ -37,7 +37,6 @@ createTabsSliceMockApi()
 const { launchAgentThroughHost } = await import('./agent-launch-through-host')
 const { agentLaunchPaneSpawnHold, releaseAgentLaunchPaneSpawn } =
   await import('./agent-launch-pane-spawn-hold')
-const { agentLaunchPanePrompt } = await import('./agent-launch-pane-prompt')
 
 const WT = 'repo1::/tmp/feature'
 let store: ReturnType<typeof createTestStore>
@@ -117,7 +116,6 @@ describe('a desktop launch through the host', () => {
     expect(tab).toMatchObject({ ptyId: null, launchAgent: 'claude' })
     const leafId = tab.agentLaunchPane!.leafId
     expect(agentLaunchPaneSpawnHold(tab.id, leafId)).not.toBeNull()
-    expect(agentLaunchPanePrompt(tab.id)).toBe('fix the failing checks')
     expect(store.getState().activeTabId).toBe(tabId)
     // No prompt: the window pastes it, as main does, once the agent runs.
     expect(callRuntimeRpc).toHaveBeenCalledWith({ kind: 'local' }, 'agent.launch', {

@@ -12,7 +12,6 @@
 import { useAppStore } from '@/store'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { persistAgentLaunchTabOrder } from '@/lib/launch-agent-tab-order'
-import { rememberAgentLaunchPanePrompt } from '@/lib/agent-launch-pane-prompt'
 import {
   holdAgentLaunchPaneSpawn,
   isAgentLaunchPaneSpawnHeld
@@ -64,7 +63,12 @@ function tabExists(worktreeId: string, tabId: string): boolean {
 
 function closeLaunchTab(worktreeId: string, tabId: string): void {
   if (tabExists(worktreeId, tabId)) {
-    useAppStore.getState().closeTab(tabId, { recordInteraction: false })
+    // Not the user's close: it isn't reopenable, and an agent that turns up late gets its own tab.
+    useAppStore.getState().closeTab(tabId, {
+      reason: 'cleanup',
+      recordInteraction: false,
+      captureRecentlyClosed: false
+    })
   }
 }
 
@@ -158,7 +162,6 @@ export function launchAgentThroughHost(args: HostAgentLaunchArgs): {
     ...(args.pendingActivationSpawn ? { pendingActivationSpawn: true } : {}),
     ...(args.viewMode ? { viewMode: args.viewMode } : {})
   })
-  rememberAgentLaunchPanePrompt(tabId, args.prompt)
   seedNativeChatAppliedSessionOptions(tabId, args.agent, args.sessionOptions)
   // Why: without it an activated launch can stay hidden behind an editor.
   store.setActiveTabType('terminal', args.worktreeId)
