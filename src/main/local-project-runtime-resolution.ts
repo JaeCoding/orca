@@ -111,8 +111,9 @@ export function resolveLocalWorkspaceRuntime(
   ) {
     return undefined
   }
-  // TEMPORARY parity: main finds the project by its source repos only; the window also by its id.
-  const project = store.getProjects().find((entry) => entry.sourceRepoIds.includes(repo.id))
+  const project = store
+    .getProjects()
+    .find((entry) => entry.id === repo.id || entry.sourceRepoIds.includes(repo.id))
   const preference = getWorkspaceRuntimePreference(
     project?.localWindowsRuntimePreference,
     workspacePath
