@@ -87,6 +87,9 @@ export type AcpLaunchSpec = {
   supportsVersion?(version: string): boolean
   /** Where the agent installs its own binary, searched after PATH. */
   installDirectories(input: { env: Readonly<Record<string, string>>; homePath: string }): string[]
+  /** The session config option through which the agent enforces the Agent Permissions posture
+   *  itself, and its values; Orca then answers none of its permission requests for the person. */
+  permissionModeConfig?: { configId: string; ask: string; full: string }
   /** Images go to the agent when it also advertises them; off sends text prompts only. */
   imagePrompts?: true
   /** The agent compacts its conversation when sent `/compact` as a prompt; off hides `/compact`. */
