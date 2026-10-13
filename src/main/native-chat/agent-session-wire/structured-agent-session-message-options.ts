@@ -5,33 +5,38 @@ import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../shared/agent-chat
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-mutation-context'
 import { recordStructuredAgentSessionOptionIntent } from './structured-agent-session-options-read'
 import { performSetOption } from './structured-agent-session-turns-options'
-import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
+import type { TurnOutcome } from './structured-agent-session-turns'
 
-export type StructuredAgentSessionOptionWriteContext = Pick<
-  AgentSessionTurnContext,
-  'sessionId' | 'adapter' | 'fence' | 'persistOptions' | 'publish'
->
-
-/** With no child running, intent the next start replays; else the running child's own write. */
+/** With no child running, intent the next start replays; else the running child's own write. Either
+ *  is recorded on the chat at `fence` and published. */
 export async function writeStructuredAgentSessionOption(
   context: StructuredAgentSessionMutationContext,
-  ctx: StructuredAgentSessionOptionWriteContext,
+  target: { sessionId: string; fence: number },
   input: { key: string; value: string }
 ): Promise<TurnOutcome<AgentSessionOptionResult>> {
-  if (
-    input.key === AGENT_CHAT_PERMISSION_MODE_OPTION_ID ||
-    !context.sessions.get(ctx.sessionId)?.child
-  ) {
+  const { sessionId, fence } = target
+  const session = context.sessions.get(sessionId)
+  const ctx = {
+    sessionId,
+    fence,
+    adapter: context.deps.adapter,
+    persistOptions: (options: Readonly<Record<string, string>>) =>
+      context.deps.store
+        .replaceSessionOptions({ sessionId, fence, options, now: context.now() })
+        .then(() => undefined),
+    publish: () => session && context.publish(sessionId, session.journal)
+  }
+  if (input.key === AGENT_CHAT_PERMISSION_MODE_OPTION_ID || !session?.child) {
     return recordStructuredAgentSessionOptionIntent(context.deps, ctx, input)
   }
   // Held where a start is, so a close, a Stop admitted now or quit ends the wait from outside.
-  const wait = context.acquireAborts.begin(ctx.sessionId)
+  const wait = context.acquireAborts.begin(sessionId)
   try {
     return await performSetOption(ctx, input, wait.signal)
   } finally {
     wait.end()
     // Whatever the write's outcome, the child may hold what it asked for now.
-    context.optionRevisions.advance(ctx.sessionId)
+    context.optionRevisions.advance(sessionId)
   }
 }
 
@@ -43,20 +48,9 @@ export async function applyStructuredAgentSessionMessageOptions(
   sessionId: string,
   options: Readonly<Record<string, string>> | undefined
 ): Promise<void> {
-  const session = context.sessions.get(sessionId)
   const fence = context.deps.store.getRecord(sessionId)?.lease.runtimeFence
-  if (!options || !session || fence === undefined) {
+  if (!options || fence === undefined) {
     return
-  }
-  const ctx: StructuredAgentSessionOptionWriteContext = {
-    sessionId,
-    fence,
-    adapter: context.deps.adapter,
-    persistOptions: (next) =>
-      context.deps.store
-        .replaceSessionOptions({ sessionId, fence, options: next, now: context.now() })
-        .then(() => undefined),
-    publish: () => context.publish(sessionId, session.journal)
   }
   const entries = Object.entries(options).sort(
     ([a], [b]) => Number(b === 'model') - Number(a === 'model')
@@ -65,9 +59,11 @@ export async function applyStructuredAgentSessionMessageOptions(
     if (context.deps.store.getRecord(sessionId)?.options?.[key] === value) {
       continue
     }
-    const written = await writeStructuredAgentSessionOption(context, ctx, { key, value }).catch(
-      (error: unknown) => ({ ok: false as const, error })
-    )
+    const written = await writeStructuredAgentSessionOption(
+      context,
+      { sessionId, fence },
+      { key, value }
+    ).catch((error: unknown) => ({ ok: false as const, error }))
     if (!written.ok) {
       context.deps.logger.warn("applying a message's option failed", {
         scope: 'message-options',

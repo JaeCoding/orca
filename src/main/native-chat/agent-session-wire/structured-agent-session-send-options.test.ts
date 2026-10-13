@@ -18,6 +18,11 @@ import {
   hostTestOperationId
 } from './structured-agent-session-host-test-data'
 import {
+  CREATE_TEST_CALLER,
+  createTestParams
+} from './structured-agent-session-create-test-fixture'
+import {
+  acceptedDispatch,
   createRestTestRig,
   foundRestTestChat,
   IDLE_MS,
@@ -77,6 +82,93 @@ describe('a send carrying its model and effort to a chat at rest', () => {
       expect(rest.adapter.acquire).toHaveBeenLastCalledWith(
         expect.objectContaining({ options: expect.objectContaining(PICKED) })
       )
+    } finally {
+      await rest.dispose()
+    }
+  })
+})
+
+describe('an opening message created with a model and effort', () => {
+  const OPENED = { model: 'opus', effort: 'high' }
+
+  /** Creates the chat with its opening message; its agent stays starting until `proveStart`. */
+  async function createWhileStarting(
+    rest: Awaited<ReturnType<typeof createRestTestRig>>,
+    options: Record<string, string> = OPENED
+  ) {
+    const start = rest.adapter.acquire.getMockImplementation()!
+    rest.adapter.acquire.mockImplementationOnce(async (input) => ({
+      ...(await start(input)),
+      providerChildPhase: 'starting'
+    }))
+    const first = { clientMessageId: hostTestOperationId(), body: hostTestMessage('opening') }
+    const params = createTestParams(first, { options })
+    expect(
+      await rest.host.create(CREATE_TEST_CALLER, params, { firstMessage: first })
+    ).toMatchObject({ ok: true })
+    await vi.waitFor(() =>
+      expect(rest.host.collaboratorsForTests().sessions.get(SESSION)?.child?.phase).toBe('starting')
+    )
+    const proveStart = async () =>
+      rest.host.handleAdapterEvent({
+        type: 'started',
+        sessionId: SESSION,
+        fence: rest.store.getRecord(SESSION)!.lease.runtimeFence,
+        acquisitionGeneration: (await rest.adapter.acquire.mock.results[0]!.value)
+          .acquisitionGeneration,
+        reportedOptions: options,
+        restoreSkippedOptions: [],
+        optionRevision: rest.host
+          .collaboratorsForTests()
+          .runtimeState.optionRevisions.current(SESSION)
+      })
+    return { first, proveStart }
+  }
+
+  it('runs on them though a pick made before its handover changed the chat', async () => {
+    const rest = await createRestTestRig({ idleSweep: { intervalMs: 60_000 } })
+    try {
+      // Model only: this rig's agent answers a pick with nothing, so each write replaces the record.
+      const { proveStart } = await createWhileStarting(rest, { model: 'opus' })
+      const fields = { key: 'model', value: 'sonnet' }
+      const send = restTestSend('unused', rest.store.getRecord(SESSION)?.lease.runtimeFence)
+      const envelope = {
+        ...send.envelope,
+        payloadFingerprint: computeAgentSessionPayloadFingerprint({
+          method: 'agentSession.setOption',
+          sessionId: SESSION,
+          fields
+        })
+      }
+      expect(await rest.host.setOption(REST_TEST_CALLER, { envelope, ...fields })).toMatchObject({
+        ok: true
+      })
+      expect(rest.store.getRecord(SESSION)?.options?.model).toBe('sonnet')
+      const ranOn: (string | undefined)[] = []
+      rest.adapter.dispatch.mockImplementationOnce(async () => {
+        ranOn.push(rest.store.getRecord(SESSION)?.options?.model)
+        return acceptedDispatch()
+      })
+      await proveStart()
+      await vi.waitFor(() => expect(rest.adapter.dispatch).toHaveBeenCalledOnce())
+      expect(ranOn).toEqual(['opus'])
+    } finally {
+      await rest.dispose()
+    }
+  })
+
+  it('keeps them on the card Orca keeps when it stops before the handover', async () => {
+    const rest = await createRestTestRig({ idleSweep: { intervalMs: 60_000 } })
+    try {
+      const { first } = await createWhileStarting(rest)
+      const host = await rest.restart()
+      expect(await host.history({ sessionId: SESSION, direction: 'tail' })).toMatchObject({
+        ok: true
+      })
+      const journal = host.collaboratorsForTests().sessions.get(SESSION)?.journal
+      expect(journal?.queuedMessages.list()).toMatchObject([
+        { messageId: first.clientMessageId, options: OPENED }
+      ])
     } finally {
       await rest.dispose()
     }

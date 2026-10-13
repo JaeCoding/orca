@@ -67,8 +67,14 @@ describe('what each composer send carries', () => {
     expect(sendOptionsFor(true, null, undefined)()).toEqual({ model: 'sonnet', effort: 'high' })
   })
 
-  it('carries a pick still on its way', () => {
-    expect(sendOptionsFor(true, { id: 'model', value: 'sonnet' })()).toEqual({ model: 'sonnet' })
+  it('carries a pick still on its way, resolved as the picker shows it', () => {
+    expect(sendOptionsFor(true, { id: 'model', value: 'opus[1m]' })()).toMatchObject({
+      model: 'opus[1m]'
+    })
+    // A gone model the pick names moves to the listed default, as the picker shows.
+    expect(sendOptionsFor(true, { id: 'model', value: 'claude-retired' })()).toMatchObject({
+      model: 'sonnet'
+    })
   })
 
   it('carries nothing to an older host', () => {

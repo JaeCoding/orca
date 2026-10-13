@@ -25,6 +25,13 @@ export function agentSessionSendControlFields(
   }
 }
 
+/** What a send's operation fingerprint covers, on the client and the host alike. */
+export function agentSessionSendFields(
+  send: StructuredAgentSessionSendControl & { body: AgentJournalMessageItem }
+): StructuredAgentSessionSendControl & { body: AgentJournalMessageItem } {
+  return { body: agentSessionMessagePayload(send.body), ...agentSessionSendControlFields(send) }
+}
+
 /** What every send fingerprint covers: the message without its sender, which never reaches the
  *  provider, so its echo still matches. A body with no sender hashes exactly as it always has. */
 export function agentSessionMessagePayload(body: AgentJournalMessageItem): AgentJournalMessageItem {
@@ -63,7 +70,7 @@ export function structuredAgentSessionMessageSendMutation(
       payloadFingerprint: structuredAgentSessionPayloadFingerprint({
         method: 'agentSession.send',
         sessionId: message.sessionId,
-        fields: { body: agentSessionMessagePayload(message.body), ...control }
+        fields: agentSessionSendFields(message)
       })
     },
     body: message.body,

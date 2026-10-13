@@ -146,25 +146,19 @@ export function structuredAgentSessionListedPicks(
 /** A pick on its way to the host. */
 export type StructuredAgentSessionPendingPick = { id: string; value: string }
 
-/** The Claude model and effort the composer shows (`snapshot`), which every send carries. A pick
- *  still on its way to the host rides it too, so neither write undoes the other whichever lands
- *  first; a model pick rides alone, as the effort shown belongs to the model it replaces. */
+/** The Claude model and effort the composer shows (`snapshot`), which every send carries. */
 export function structuredAgentSessionSendSelection(
   agent: string,
-  snapshot: readonly SessionOptionDescriptor[],
-  pending: StructuredAgentSessionPendingPick | null
+  snapshot: readonly SessionOptionDescriptor[]
 ): Record<string, string> | undefined {
   if (agent !== 'claude') {
     return undefined
-  }
-  if (pending?.id === 'model') {
-    return { model: pending.value }
   }
   const shown = (id: string): string | undefined => {
     const kind = snapshot.find((descriptor) => descriptor.id === id)?.kind
     return kind?.type === 'select' ? kind.currentValue : undefined
   }
   const model = shown('model')
-  const effort = pending?.id === 'effort' ? pending.value : shown('effort')
+  const effort = shown('effort')
   return model ? { model, ...(effort ? { effort } : {}) } : undefined
 }

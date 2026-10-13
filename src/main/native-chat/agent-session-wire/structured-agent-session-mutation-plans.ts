@@ -26,9 +26,8 @@ import type { AgentSessionConversationCommandResult } from '../../../shared/agen
 import { DISPATCH_DOUBT_SUBMISSION_MISSING } from '../agent-session-journal/journal-dispatch-doubt-reasons'
 import type { StructuredAgentSessionBackgroundStopInput } from './structured-agent-session-background-stop'
 import {
-  agentSessionMessagePayload,
   agentSessionSendBodyFingerprint,
-  agentSessionSendControlFields,
+  agentSessionSendFields,
   type StructuredAgentSessionSendMutation
 } from '../../../shared/structured-agent-session-send-mutation'
 import {
@@ -156,10 +155,7 @@ export function sendPlan(
     commandReceipt: submissionOrDraftReceipt(clientMessageId),
     // Control fields join the OPERATION fingerprint only; the submission row keeps
     // the body-only fingerprint the reducer's echo-aliasing recomputes.
-    fields: {
-      body: agentSessionMessagePayload(params.body),
-      ...agentSessionSendControlFields(params)
-    },
+    fields: agentSessionSendFields(params),
     recoverUnknownFromDurableState: true,
     // `retryUnknown` is a compatibility-only client signal. A recorded send
     // always replays and never reaches the provider twice.

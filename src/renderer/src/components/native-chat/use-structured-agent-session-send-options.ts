@@ -21,15 +21,15 @@ export function useStructuredAgentSessionSendOptions(
     }
     // Read, not rendered: a pick the launch just took is not in this render's props yet.
     const selection = getStructuredAgentSessionLaunchSelection(sessionId)
-    const view = optionView(
-      optionStateRef.current,
-      selection?.seed ?? launch?.seedOptions,
-      selection?.held ?? launch?.heldOptions ?? {}
-    )
+    // A pick on its way resolves as the picker shows it, so a gone model it names is replaced too.
+    const pending = pendingOptionRef.current
+    const view = optionView(optionStateRef.current, selection?.seed ?? launch?.seedOptions, {
+      ...(selection?.held ?? launch?.heldOptions),
+      ...(pending ? { [pending.id]: pending.value } : {})
+    })
     return structuredAgentSessionSendSelection(
       view.record.agent,
-      structuredAgentSessionOptionSnapshot(view),
-      pendingOptionRef.current
+      structuredAgentSessionOptionSnapshot(view)
     )
   }, [launch, optionStateRef, optionView, pendingOptionRef, sessionId, takesSendOptions])
 }

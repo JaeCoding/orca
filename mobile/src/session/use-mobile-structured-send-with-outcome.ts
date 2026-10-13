@@ -145,7 +145,7 @@ export function useMobileStructuredSendWithOutcome(args: {
       // A pick on its way holds the send, so the picker shows what the chat holds.
       const options =
         carriesOptions && agent
-          ? structuredAgentSessionSendSelection(agent, controller.snapshot, null)
+          ? structuredAgentSessionSendSelection(agent, controller.snapshot)
           : undefined
       const outcome = await sendMobileStructuredAgentSessionMessage({
         client,

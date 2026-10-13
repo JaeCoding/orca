@@ -13,8 +13,7 @@ import {
   structuredAgentSessionListedPicks,
   structuredAgentSessionOptionView,
   structuredAgentSessionSendSelection,
-  structuredAgentSessionShownSnapshot,
-  type StructuredAgentSessionPendingPick
+  structuredAgentSessionShownSnapshot
 } from './structured-agent-session-option-view'
 
 const levels = (...values: string[]) => values.map((value) => ({ value, label: value }))
@@ -149,12 +148,13 @@ describe('what a send carries', () => {
   const carried = (
     state: StructuredAgentSessionOptionState,
     seed?: Readonly<Record<string, string>>,
-    pending: StructuredAgentSessionPendingPick | null = null
+    picks: Readonly<Record<string, string>> = {}
   ) =>
     structuredAgentSessionSendSelection(
       state.record.agent,
-      structuredAgentSessionOptionSnapshot(structuredAgentSessionOptionView(state, seed, {}, true)),
-      pending
+      structuredAgentSessionOptionSnapshot(
+        structuredAgentSessionOptionView(state, seed, picks, true)
+      )
     )
 
   it('carries the shown model and effort, the replacement included', () => {
@@ -177,11 +177,13 @@ describe('what a send carries', () => {
     })
   })
 
-  it('carries a pick still on its way, so the pick and the send agree', () => {
-    expect(carried(withHostList(), remembered, { id: 'model', value: 'sonnet' })).toEqual({
-      model: 'sonnet'
+  it('resolves a pick on its way as the picker shows it, a gone model it names included', () => {
+    const listed = withHostList(fresh(), { ...LISTED, models: [OPUS, SONNET] })
+    expect(carried(listed, remembered, { model: 'sonnet' })).toMatchObject({ model: 'sonnet' })
+    expect(carried(withHostList(), undefined, { model: 'claude-retired' })).toMatchObject({
+      model: 'opus[1m]'
     })
-    expect(carried(withHostList(), remembered, { id: 'effort', value: 'low' })).toEqual({
+    expect(carried(withHostList(), remembered, { effort: 'low' })).toEqual({
       model: 'opus[1m]',
       effort: 'low'
     })
