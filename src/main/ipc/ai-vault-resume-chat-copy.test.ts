@@ -41,7 +41,7 @@ describe('Resume in New CLI preparation for a chat whose host makes the copy', (
     installCopyingChat({ transport: 'acp', agent: 'omp', nativeId: 'unrelated' }, copy)
     const prepareRuntimeSessionResume = vi.fn(async () => ({
       useRealCodexHome: false,
-      forkedSession: { sessionId: 'remote-copy', agent: 'omp' }
+      forkedSession: { sessionId: 'remote-copy', agent: 'omp' as const }
     }))
 
     await expect(

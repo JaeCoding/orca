@@ -5,6 +5,7 @@ import type {
   AiVaultPrepareSessionResumeResult
 } from '../../shared/ai-vault-resume-preparation'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
+import { isAiVaultAgent } from './session-list-result-validation'
 import { findResumeOwnership } from './structured-session-ownership'
 
 /**
@@ -38,6 +39,10 @@ export async function copyStructuredChatConversation(
   })
   return {
     useRealCodexHome: false,
-    forkedSession: { sessionId: forkedSessionId, agent: record.provider }
+    forkedSession: {
+      sessionId: forkedSessionId,
+      // The chat's own agent, not the row's: an OpenCode 2 row's chat runs `opencode`.
+      agent: isAiVaultAgent(record.provider) ? record.provider : args.agent
+    }
   }
 }
