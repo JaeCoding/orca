@@ -4,11 +4,25 @@ import type { z } from 'zod'
 import type { SendBody } from './rpc-contract/structured-agent-session-message-params'
 import { structuredAgentSessionPayloadFingerprint } from './structured-agent-session-mutation'
 
-export type StructuredAgentSessionSendMutation = {
-  envelope: AgentSessionMutationEnvelope
-  body: AgentJournalMessageItem
+/** What a send carries beside its message: both join the OPERATION fingerprint, never the body's. */
+export type StructuredAgentSessionSendControl = {
   delivery?: 'queue-if-active'
   options?: Readonly<Record<string, string>>
+}
+
+export type StructuredAgentSessionSendMutation = StructuredAgentSessionSendControl & {
+  envelope: AgentSessionMutationEnvelope
+  body: AgentJournalMessageItem
+}
+
+/** The control fields a send names, as the client sends them and the host digests them. */
+export function agentSessionSendControlFields(
+  send: StructuredAgentSessionSendControl
+): StructuredAgentSessionSendControl {
+  return {
+    ...(send.delivery ? { delivery: send.delivery } : {}),
+    ...(send.options ? { options: send.options } : {})
+  }
 }
 
 /** What every send fingerprint covers: the message without its sender, which never reaches the
@@ -32,19 +46,15 @@ export function agentSessionSendBodyFingerprint(
 
 /** The `agentSession.send` arguments for one message. Typed rather than wire-shaped so a host
  *  calling its own send path builds the same envelope a client would, fingerprint included. */
-export function structuredAgentSessionMessageSendMutation(message: {
-  sessionId: string
-  clientOperationId: string
-  expectedRuntimeFence: number
-  body: AgentJournalMessageItem
-  delivery?: 'queue-if-active'
-  options?: Readonly<Record<string, string>>
-}): StructuredAgentSessionSendMutation {
-  // `delivery` and `options` join the OPERATION fingerprint as the host digests it; never the body's.
-  const control = {
-    ...(message.delivery ? { delivery: message.delivery } : {}),
-    ...(message.options ? { options: message.options } : {})
-  }
+export function structuredAgentSessionMessageSendMutation(
+  message: {
+    sessionId: string
+    clientOperationId: string
+    expectedRuntimeFence: number
+    body: AgentJournalMessageItem
+  } & StructuredAgentSessionSendControl
+): StructuredAgentSessionSendMutation {
+  const control = agentSessionSendControlFields(message)
   return {
     envelope: {
       sessionId: message.sessionId,
