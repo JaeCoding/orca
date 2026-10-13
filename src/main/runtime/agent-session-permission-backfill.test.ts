@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { codexProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 import { foundAgentSessionRecord } from './agent-session-record-founding'
 import {
@@ -42,7 +42,7 @@ function record(provider: string, options?: Record<string, string>) {
 
 describe('existing chat permission backfill', () => {
   it.each(['full-access', 'ask'] as const)(
-    'saves host default %s for old Claude and Codex rows, keeping other options',
+    "saves %s from the agent's own Arguments for old Claude and Codex rows, keeping other options",
     async (mode) => {
       await seedTestAgentSessionRecordStore(root, {
         records: [record('claude', { model: 'opus', effort: 'high' }), record('codex')]
@@ -50,7 +50,7 @@ describe('existing chat permission backfill', () => {
       const store = await openTestAgentSessionRecordStore(root)
       const beforeClaude = store.getRecord('session-claude')
       const beforeCodex = store.getRecord('session-codex')
-      await store.backfillChatPermissionModes(mode)
+      await store.backfillChatPermissionModes(() => mode === 'full-access')
       expect(store.getRecord('session-claude')?.options).toEqual({
         model: 'opus',
         effort: 'high',
@@ -87,22 +87,22 @@ describe('existing chat permission backfill', () => {
       })
       const store = await openTestAgentSessionRecordStore(root)
       const before = store.listRecords()
-      await store.backfillChatPermissionModes(mode === 'full-access' ? 'ask' : 'full-access')
+      await store.backfillChatPermissionModes(() => mode !== 'full-access')
       expect(store.listRecords()).toEqual(before)
       expect(store.getRecord('session-grok')?.options).toEqual({ model: 'grok' })
     }
   )
 
-  it('does no row write on its second pass, even with a changed default', async () => {
+  it('does no row write on its second pass, even with changed Arguments', async () => {
     await seedTestAgentSessionRecordStore(root, { records: [record('claude'), record('codex')] })
     const store = await openTestAgentSessionRecordStore(root)
-    await store.backfillChatPermissionModes('full-access')
+    await store.backfillChatPermissionModes(() => true)
     const before = store.listRecords()
     const db = openTestJournalHostDatabase(root).db
     db.exec(
       "CREATE TRIGGER refuse_backfill_write BEFORE UPDATE ON agent_session_records BEGIN SELECT RAISE(ABORT, 'unexpected second write'); END"
     )
-    await expect(store.backfillChatPermissionModes('ask')).resolves.toBeUndefined()
+    await expect(store.backfillChatPermissionModes(() => false)).resolves.toBeUndefined()
     expect(store.listRecords()).toEqual(before)
     expect(store.getRecord('session-claude')).toBe(before.find((row) => row.provider === 'claude'))
     expect(store.getRecord('session-codex')?.options?.permissionMode).toBe('full-access')
@@ -114,26 +114,26 @@ describe('existing chat permission backfill', () => {
     const store = await openTestAgentSessionRecordStore(root)
     expect(store.readOnly).toBe(true)
     expect(store.getRecord('session-claude')).not.toBeNull()
-    await expect(store.backfillChatPermissionModes('full-access')).resolves.toBeUndefined()
+    await expect(store.backfillChatPermissionModes(() => true)).resolves.toBeUndefined()
     expect(store.getRecord('session-claude')?.options).toBeUndefined()
   })
 
   it.each([
-    ['auto', 'auto', 'auto'],
-    ['accept-edits', 'accept-edits', 'ask']
+    ['claude', 'full-access', 'ask'],
+    ['codex', 'ask', 'full-access']
   ] as const)(
-    'normalizes %s to provider support while retaining intent (%s, %s)',
-    async (mode, claude, codex) => {
+    "fills each row from its own agent's Arguments when only %s skips prompts",
+    async (bypassing, claude, codex) => {
       await seedTestAgentSessionRecordStore(root, {
-        records: [record('claude', { model: 'unsupported' }), record('codex')]
+        records: [record('claude'), record('codex'), record('grok')]
       })
       const store = await openTestAgentSessionRecordStore(root)
-      await store.backfillChatPermissionModes(mode)
-      expect(store.getRecord('session-claude')?.options).toEqual({
-        model: 'unsupported',
-        permissionMode: claude
-      })
+      const ranWithFullAccess = vi.fn((provider: string) => provider === bypassing)
+      await store.backfillChatPermissionModes(ranWithFullAccess)
+      expect(store.getRecord('session-claude')?.options).toEqual({ permissionMode: claude })
       expect(store.getRecord('session-codex')?.options).toEqual({ permissionMode: codex })
+      expect(store.getRecord('session-grok')?.options).toBeUndefined()
+      expect(ranWithFullAccess).toHaveBeenCalledTimes(3)
     }
   )
 
@@ -171,7 +171,7 @@ describe('existing chat permission backfill', () => {
     const store = await openTestAgentSessionRecordStore(root)
     const before = store.getRecord('session-codex')
     expect(before).not.toBeNull()
-    await store.backfillChatPermissionModes('full-access')
+    await store.backfillChatPermissionModes(() => true)
     expect(store.getRecord('session-codex')).toEqual({
       ...before,
       options: {
@@ -189,7 +189,7 @@ describe('existing chat permission backfill', () => {
     db.exec(
       "CREATE TRIGGER refuse_backfill_write BEFORE UPDATE ON agent_session_records WHEN NEW.session_id = 'session-codex' BEGIN SELECT RAISE(ABORT, 'disk full'); END"
     )
-    await expect(store.backfillChatPermissionModes('full-access')).rejects.toThrow('disk full')
+    await expect(store.backfillChatPermissionModes(() => true)).rejects.toThrow('disk full')
     expect(store.listRecords().every((row) => row.options === undefined)).toBe(true)
     expect(
       (await openTestAgentSessionRecordStore(root))
@@ -197,7 +197,7 @@ describe('existing chat permission backfill', () => {
         .every((row) => row.options === undefined)
     ).toBe(true)
     db.exec('DROP TRIGGER refuse_backfill_write')
-    await store.backfillChatPermissionModes('full-access')
+    await store.backfillChatPermissionModes(() => true)
     expect(store.listRecords().every((row) => row.options?.permissionMode === 'full-access')).toBe(
       true
     )

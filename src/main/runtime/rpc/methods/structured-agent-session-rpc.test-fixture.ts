@@ -213,8 +213,7 @@ export function hostStub(): StructuredAgentSessionHost {
   })
   // Not a call: the logger the host hands a runtime caller that reports for it.
   const logger = recordingStructuredAgentSessionLogger().logger
-  const store = { getOperationRow: vi.fn(() => null), getRecord: vi.fn(() => null) }
-  Reflect.set(hostCalls, 'deps', { logger, store })
+  Reflect.set(hostCalls, 'deps', { logger, store: { getOperationRow: vi.fn(() => null) } })
   return hostCalls as unknown as StructuredAgentSessionHost
 }
 
@@ -325,4 +324,6 @@ export function installStructuredHostStub(): void {
   setStructuredAgentSessionHost(hostStub())
 }
 
-export const clearStructuredHostStub = (): void => setStructuredAgentSessionHost(null)
+export function clearStructuredHostStub(): void {
+  setStructuredAgentSessionHost(null)
+}

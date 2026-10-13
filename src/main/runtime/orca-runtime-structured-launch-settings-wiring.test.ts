@@ -23,7 +23,6 @@ describe('execution host structured launch settings wiring', () => {
     installed.mockClear()
     const settings: Partial<GlobalSettings> = {
       agentCmdOverrides: { claude: `"${process.execPath}"`, codex: `"${process.execPath}"` },
-      nativeChatPermissionMode: 'full-access',
       agentDefaultArgs: { claude: '--model "model one"', codex: '-c model_reasoning_effort=high' }
     }
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the mocked installer only reads the store's getSettings method.
@@ -31,9 +30,6 @@ describe('execution host structured launch settings wiring', () => {
     await runtime.ensureStructuredAgentSessionHost()
     const deps = installed.mock.calls[0]?.[0]
     expect(deps).toBeDefined()
-    expect(deps?.initialChatPermissionMode).toBe('full-access')
-    settings.nativeChatPermissionMode = 'ask'
-    expect(deps?.initialChatPermissionMode).toBe('full-access')
     expect(deps?.resolveClaudeCommand?.()).toBe(process.execPath)
     expect(deps?.resolveCodexCommand?.()).toBe(process.execPath)
     expect(await deps?.resolveLaunchArgs?.('claude')).toEqual(['--model', 'model one'])
@@ -41,6 +37,9 @@ describe('execution host structured launch settings wiring', () => {
     settings.agentDefaultArgs = { claude: '--model second', codex: '' }
     expect(await deps?.resolveLaunchArgs?.('claude')).toEqual(['--model', 'second'])
     expect(await deps?.resolveLaunchArgs?.('codex')).toEqual([])
+    settings.agentDefaultArgs = { claude: '--dangerously-skip-permissions', codex: '' }
+    expect(deps?.resolveAgentFullAccess?.('claude')).toBe(true)
+    expect(deps?.resolveAgentFullAccess?.('codex')).toBe(false)
     const notRunnable = expect.objectContaining({ reason: 'agentCommandNotRunnable' })
     settings.agentCmdOverrides = { claude: 'wrapper --arg' }
     expect(() => deps?.resolveClaudeCommand?.()).toThrow(notRunnable)

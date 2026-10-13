@@ -33,10 +33,10 @@ async function resolveClientSuppliedAttach(params: z.infer<typeof AttachParams>,
       reason: 'hostUnsupported'
     })
   }
-  const seed = host.deps.store.getRecord(params.envelope.sessionId)
-    ? undefined
-    : ctx.runtime.structuredAgentSessionLaunchSeedOptions(params.agent)
-  const permissionMode = seed?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID]
+  // Reservation applies options only to a record it creates, so an existing chat is never reseeded.
+  const permissionMode = ctx.runtime.structuredAgentSessionLaunchSeedOptions(params.agent)?.[
+    AGENT_CHAT_PERMISSION_MODE_OPTION_ID
+  ]
   const attachParams: AgentSessionAttachParams = {
     ...params,
     ...(permissionMode

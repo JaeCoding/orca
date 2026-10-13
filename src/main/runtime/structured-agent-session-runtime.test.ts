@@ -224,49 +224,59 @@ describe('structured agent-session runtime install', () => {
     vi.restoreAllMocks()
   })
 
+  function oldChat(provider: 'claude' | 'codex'): AgentSessionRecord {
+    return foundAgentSessionRecord(
+      {
+        sessionId: `old-${provider}`,
+        provider,
+        location: {
+          executionHostId: HOST_ID,
+          workspaceId: 'folder-1',
+          workspaceKind: 'folder',
+          wslDistro: null
+        },
+        accountHome: {
+          variable: provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME',
+          path: '/account'
+        }
+      },
+      { claimKeyId: 'key-1', now: 1 }
+    )
+  }
+
+  async function installOver(
+    fullAccessAgents: readonly string[],
+    logger = recordingStructuredAgentSessionLogger().logger
+  ) {
+    return await ensureStructuredAgentSessionHost({
+      logger,
+      stateDirectory: stateDirectory!,
+      hostId: HOST_ID,
+      claimKeyId: 'key-1',
+      resolveWorkspacePath: async () => stateDirectory!,
+      resolveLaunchArgs: () => [],
+      resolveClaudeAuthPolicy: () => ({ account: 'managed' }),
+      resolveAgentFullAccess: (agent) => fullAccessAgents.includes(agent),
+      resolveEnvironment: async () => ({})
+    })
+  }
+
   it.each([false, true])(
     'backfills before the host is readable and keeps startup nonfatal on a failed write (%s)',
     async (failWrite) => {
       stateDirectory = await mkdtemp(join(tmpdir(), 'orca-structured-runtime-backfill-'))
-      await seedTestAgentSessionRecordStore(stateDirectory, {
-        records: [
-          foundAgentSessionRecord(
-            {
-              sessionId: 'old-chat',
-              provider: 'codex',
-              location: {
-                executionHostId: HOST_ID,
-                workspaceId: 'folder-1',
-                workspaceKind: 'folder',
-                wslDistro: null
-              },
-              accountHome: { variable: 'CODEX_HOME', path: '/account' }
-            },
-            { claimKeyId: 'key-1', now: 1 }
-          )
-        ]
-      })
+      await seedTestAgentSessionRecordStore(stateDirectory, { records: [oldChat('codex')] })
       if (failWrite) {
         openTestJournalHostDatabase(stateDirectory).db.exec(
           "CREATE TRIGGER fail_permission_backfill BEFORE UPDATE ON agent_session_records BEGIN SELECT RAISE(ABORT, 'disk full'); END"
         )
       }
       const logged = recordingStructuredAgentSessionLogger()
-      const host = await ensureStructuredAgentSessionHost({
-        logger: logged.logger,
-        stateDirectory,
-        hostId: HOST_ID,
-        claimKeyId: 'key-1',
-        initialChatPermissionMode: 'full-access',
-        resolveWorkspacePath: async () => stateDirectory!,
-        resolveLaunchArgs: () => [],
-        resolveClaudeAuthPolicy: () => ({ account: 'managed' }),
-        resolveEnvironment: async () => ({})
-      })
-      expect(host.deps.store.getRecord('old-chat')?.options?.permissionMode).toBe(
+      const host = await installOver(['codex'], logged.logger)
+      expect(host.deps.store.getRecord('old-codex')?.options?.permissionMode).toBe(
         failWrite ? undefined : 'full-access'
       )
-      expect((await host.readOptions('old-chat')).current.permissionMode).toBe(
+      expect((await host.readOptions('old-codex')).current.permissionMode).toBe(
         failWrite ? 'ask' : 'full-access'
       )
       if (failWrite) {
@@ -274,6 +284,22 @@ describe('structured agent-session runtime install', () => {
       } else {
         expect(logged.scopes()).not.toContain('permission-mode-backfill')
       }
+    }
+  )
+
+  it.each([
+    [['claude'], 'full-access', 'ask'],
+    [['codex'], 'ask', 'full-access']
+  ] as const)(
+    "fills each old chat from its own agent's arguments when %j skip prompts",
+    async (fullAccessAgents, claude, codex) => {
+      stateDirectory = await mkdtemp(join(tmpdir(), 'orca-structured-runtime-backfill-'))
+      await seedTestAgentSessionRecordStore(stateDirectory, {
+        records: [oldChat('claude'), oldChat('codex')]
+      })
+      const host = await installOver(fullAccessAgents)
+      expect(host.deps.store.getRecord('old-claude')?.options?.permissionMode).toBe(claude)
+      expect(host.deps.store.getRecord('old-codex')?.options?.permissionMode).toBe(codex)
     }
   )
 

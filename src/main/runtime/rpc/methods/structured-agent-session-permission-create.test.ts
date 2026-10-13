@@ -1,7 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
-import { HOST_TEST_LOCATION } from '../../../native-chat/agent-session-wire/structured-agent-session-host-test-data'
-import { foundAgentSessionRecord } from '../../agent-session-record-founding'
 import {
   attachParams,
   call,
@@ -42,29 +39,4 @@ describe('legacy attach-shaped permission creation', () => {
       )
     }
   )
-
-  it('does not derive a new seed for an existing record', async () => {
-    const host = getStructuredAgentSessionHost()!
-    const params = attachParams()
-    vi.mocked(host.deps.store.getRecord).mockReturnValue(
-      foundAgentSessionRecord(
-        {
-          sessionId: params.envelope.sessionId,
-          provider: params.provider,
-          location: HOST_TEST_LOCATION,
-          accountHome: params.accountHome,
-          options: { permissionMode: 'ask' }
-        },
-        { claimKeyId: 'key-1', now: 1 }
-      )
-    )
-    const seed = vi.fn(() => ({ permissionMode: 'full-access' }))
-    expect(
-      await call('agentSession.ensure', params, STRUCTURED_CLIENT, {
-        structuredAgentSessionLaunchSeedOptions: seed
-      })
-    ).toMatchObject({ ok: true })
-    expect(seed).not.toHaveBeenCalled()
-    expect(hostCalls.attach).toHaveBeenCalledWith(expect.anything(), params)
-  })
 })

@@ -116,8 +116,8 @@ export class AgentSessionRecordStore {
     return this.transactions.readOnly
   }
 
-  backfillChatPermissionModes = (mode: unknown): Promise<void> =>
-    backfillAgentSessionPermissionModes(this.transactions, mode)
+  backfillChatPermissionModes = (ranWithFullAccess: (provider: string) => boolean): Promise<void> =>
+    backfillAgentSessionPermissionModes(this.transactions, ranWithFullAccess)
 
   getRecord = (sessionId: string): AgentSessionRecord | null =>
     this.state.records.get(sessionId) ?? null
