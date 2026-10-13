@@ -340,7 +340,7 @@ describe('filesystem-auth path containment', () => {
   })
 
   it.skipIf(process.platform === 'win32')(
-    'rejects missing descendants under a symlinked ancestor outside the repo',
+    'rejects missing paths reached through a symlink out of the repo, dangling or not',
     async () => {
       const tempRoot = await mkdtemp(join(tmpdir(), 'orca-auth-symlink-'))
       try {
@@ -349,11 +349,20 @@ describe('filesystem-auth path containment', () => {
         await mkdir(repoPath)
         await mkdir(outsidePath)
         await symlink(outsidePath, join(repoPath, 'linked-outside'), 'dir')
+        await symlink(join(outsidePath, 'new.txt'), join(repoPath, 'dangling.txt'))
+        await symlink(join(repoPath, 'later.txt'), join(repoPath, 'inside.txt'))
         const store = makeStore([{ ...repo, id: 'repo-temp', path: repoPath }])
 
         await expect(
           resolveAuthorizedPath(join(repoPath, 'linked-outside', 'new', 'file.ts'), store)
         ).rejects.toThrow('Access denied')
+        // A write follows a dangling link, so it is authorized by where it points.
+        await expect(resolveAuthorizedPath(join(repoPath, 'dangling.txt'), store)).rejects.toThrow(
+          'Access denied'
+        )
+        await expect(resolveAuthorizedPath(join(repoPath, 'inside.txt'), store)).resolves.toBe(
+          join(await realpath(repoPath), 'later.txt')
+        )
       } finally {
         await rm(tempRoot, { recursive: true, force: true })
       }
