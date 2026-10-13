@@ -11,7 +11,7 @@ import {
   createProviderPrivateTempDirectory,
   type ProviderPrivateTempDirectory
 } from '../provider-process/provider-private-temp-directory'
-import { AcpConnectionClosedError } from './acp-errors'
+import { AcpAuthRequiredError, AcpConnectionClosedError } from './acp-errors'
 import { resolveAcpPeerOptions, type AcpPeerOptions } from './acp-peer-limits'
 import { AcpSessionRuntime, type AcpSessionRuntimeOptions } from './acp-session-runtime'
 
@@ -23,6 +23,8 @@ export type AcpAgentConnectionOptions = Omit<AcpSessionRuntimeOptions, 'peer'> &
   onOutput?: () => void
   /** Gives the child its own temp folder under this root. */
   privateTempRoot?: string
+  /** A stderr line where the agent waits for browser sign-in: ends the connection signed out. */
+  signInPrompt?: (line: string) => boolean
 }
 
 /** The execution host owns the child and protocol lifetime; the adapter owns turns and Stop. */
@@ -51,11 +53,24 @@ export class AcpAgentConnection extends AcpSessionRuntime {
     const privateTemp = options.privateTempRoot
       ? createProviderPrivateTempDirectory(options.privateTempRoot)
       : undefined
+    const { signInPrompt } = options
+    let signedOut = (): void => {}
     const managed = spawnManagedProviderProcess(launch, {
       spawnImpl,
       site: 'acp-agent-teardown',
       ...(options.onOutput ? { onOutput: options.onOutput } : {}),
-      ...(privateTemp ? { privateTemp } : {})
+      ...(privateTemp ? { privateTemp } : {}),
+      ...(signInPrompt
+        ? {
+            onStderrLine: (line: string) => {
+              const prompted = signInPrompt(line)
+              if (prompted) {
+                signedOut()
+              }
+              return prompted
+            }
+          }
+        : {})
     })
     const lifecycle: { closing: boolean; error?: Error } = { closing: false }
     const diagnose = (message: string): void => {
@@ -103,6 +118,8 @@ export class AcpAgentConnection extends AcpSessionRuntime {
       child.once('error', done)
     })
     child.on('error', (error) => super.close(error))
+    signedOut = () =>
+      super.close(new AcpAuthRequiredError('The agent asked to sign in in a browser'))
     child.stderr.on('error', (error) => super.close(error))
     managed.onExit((exit) => {
       const error =
