@@ -83,7 +83,24 @@ function refusedBeforeWrite(carrier: AgentJournalSubmission): boolean {
   return kind !== undefined && REFUSED_BEFORE_WRITE.has(kind)
 }
 
-/** The stopped messages owed to the agent, in the order they were sent. */
+// Per message, the larger transport's framing beyond its words: Codex's two item wrappers and its
+// own interrupted record.
+export const STOPPED_MESSAGE_FRAMING_BYTES = 512
+
+const encoder = new TextEncoder()
+
+/** Words as a send's size limit counts them. */
+function wordsBytes(words: string): number {
+  return encoder.encode(JSON.stringify(words)).length
+}
+
+/** What a stopped message takes of the send it rides with. */
+function deliveryBytes(words: string): number {
+  return wordsBytes(words) + STOPPED_MESSAGE_FRAMING_BYTES
+}
+
+/** The stopped messages owed to the agent, in the order they were sent. One too large to deliver
+ *  beside any send is not owed, so it never holds the others back. */
 export function agentSessionStoppedHistoryOwed(
   journal: StoppedHistoryJournal
 ): OwedStoppedMessage[] {
@@ -111,7 +128,9 @@ export function agentSessionStoppedHistoryOwed(
       const { clientMessageId, acceptedSequence } = submission
       const body = journal.body(clientMessageId)
       const words = isOrdinaryPersonMessage(body) ? messageWords(body) : ''
-      return words.length > 0 ? [{ clientMessageId, words, acceptedSequence }] : []
+      return words.length > 0 && deliveryBytes(words) + wordsBytes('') <= MAX_PROMPT_BYTES
+        ? [{ clientMessageId, words, acceptedSequence }]
+        : []
     })
     .sort((left, right) => left.acceptedSequence - right.acceptedSequence)
     .map(({ clientMessageId, words }) => ({ clientMessageId, words }))
@@ -123,10 +142,6 @@ function messageWords(body: AgentJournalMessageItem): string {
     .flatMap((block) => (block.type === 'text' && block.text.length > 0 ? [block.text] : []))
     .join('\n')
 }
-
-// Per message, the larger transport's framing beyond its words: Codex's two item wrappers and its
-// own interrupted record.
-export const STOPPED_MESSAGE_FRAMING_BYTES = 512
 
 /** One delivery: the newest owed message, and older ones while they fit, in the order sent. With
  *  the send's own words they never exceed what one send can hold (`MAX_PROMPT_BYTES`), so the agent
@@ -141,12 +156,10 @@ export function selectStoppedHistory(
   owed: readonly OwedStoppedMessage[],
   send: AgentJournalMessageItem
 ): StoppedHistoryDelivery | null {
-  const encoder = new TextEncoder()
-  const bytes = (words: string): number => encoder.encode(JSON.stringify(words)).length
   const messages: OwedStoppedMessage[] = []
-  let room = MAX_PROMPT_BYTES - bytes(messageWords(send))
+  let room = MAX_PROMPT_BYTES - wordsBytes(messageWords(send))
   for (const entry of owed.toReversed()) {
-    const cost = bytes(entry.words) + STOPPED_MESSAGE_FRAMING_BYTES
+    const cost = deliveryBytes(entry.words)
     if (cost <= room) {
       room -= cost
       messages.unshift(entry)

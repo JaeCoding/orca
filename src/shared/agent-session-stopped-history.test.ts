@@ -6,7 +6,7 @@ import type {
   AgentJournalMessageItem,
   AgentJournalSubmission
 } from './agent-session-journal-types'
-import { MAX_PROMPT_BYTES } from './rpc-contract/structured-agent-session-message-params'
+import { MAX_PROMPT_BYTES, SendBody } from './rpc-contract/structured-agent-session-message-params'
 import {
   agentSessionSendCarriesStoppedHistory,
   agentSessionSendDeliversStoppedHistory,
@@ -154,6 +154,24 @@ describe('which stopped messages the agent is owed', () => {
     expect(agentSessionStoppedHistoryOwed(journal)).toEqual([
       { clientMessageId: 'b', words: 'look\nhere' }
     ])
+  })
+
+  it('owes none too large to deliver beside any send, though it was admissible as a send', () => {
+    // A send's words cost their JSON string plus each stopped message's framing; an empty send costs 2.
+    const largest = 'x'.repeat(MAX_PROMPT_BYTES - STOPPED_MESSAGE_FRAMING_BYTES - 4)
+    const tooLarge = 'x'.repeat(262_000)
+    expect(SendBody.safeParse(message(tooLarge)).success).toBe(true)
+    const bodies = { largest: message(largest), tooLarge: message(tooLarge) }
+    expect(
+      owed([sent('a', 2, STOPPED), sent('largest', 3, STOPPED), sent('tooLarge', 4, STOPPED)], {
+        bodies
+      })
+    ).toEqual(['a', 'largest'])
+    expect(
+      owed([sent('a', 2, STOPPED), sent('largest', 3, STOPPED)], {
+        bodies: { largest: message(`${largest}x`) }
+      })
+    ).toEqual(['a'])
   })
 
   it('owes nothing from before the latest /clear', () => {

@@ -396,6 +396,28 @@ describe('stopped messages ride at the front of the next words-only send', () =>
   })
 })
 
+describe('a stopped message too large to deliver beside any send', () => {
+  // Admissible as a send, but with its framing it fills more than a whole one.
+  const tooLarge = 'x'.repeat(262_000)
+
+  it('never holds back the others carried in the next send', async () => {
+    await start()
+    await stopWhileStarting('first', tooLarge)
+    await nextSend('go ahead with that')
+
+    expect(dispatched()).toEqual([carrying(['first'], 'go ahead with that')])
+  })
+
+  it('never holds back the others injected ahead of the next send', async () => {
+    await start({ injectsStoppedHistory: true })
+    await stopWhileStarting('first', tooLarge)
+    await nextSend('go ahead with that')
+
+    expect(injected()).toEqual([['first']])
+    expect(dispatched()).toEqual(['go ahead with that'])
+  })
+})
+
 describe('an agent that injects gets them in its own log ahead of the send', () => {
   const injecting = () => start({ injectsStoppedHistory: true })
 
