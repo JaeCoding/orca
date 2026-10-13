@@ -2,10 +2,11 @@
  * A desktop launch started through the host's `agent.launch`, with no prompt.
  *
  * This window owns the workspace's tab layout, so it makes the agent's tab at the click, in the
- * split it was asked for, as any new agent tab is made. The host records the launch under this
- * click's operation id and starts the agent into that tab's pane. The pane's spawn waits until the
- * host has taken it (`agent-launch-pane-spawn-hold`), then attaches to the agent or says why it could
- * not start. The prompt stays this window's to paste, as main pastes it, once the agent has started.
+ * split it was asked for, as any new agent tab is made. The host starts the agent into that tab's
+ * pane and writes no launch record: nothing reads one for a click, and a record store that cannot
+ * open must not stop it. The pane's spawn waits until the host has taken it
+ * (`agent-launch-pane-spawn-hold`), then attaches to the agent. The prompt stays this window's to
+ * paste, as main pastes it, once the agent has started.
  */
 
 import { useAppStore } from '@/store'
@@ -19,9 +20,7 @@ import {
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
-import { createAgentSessionOperationId } from '@/runtime/agent-session-operation-id'
 import { isAgentLaunchResult } from '../../../shared/agent-launch-intent'
-import { AGENT_LAUNCH_TAB_CLOSED_CODE } from '../../../shared/agent-launch-tab-closed'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import { isNativeChatEnabled } from '../../../shared/structured-native-chat-launch-route'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -53,20 +52,11 @@ export type HostAgentLaunchArgs = {
 export type HostAgentLaunchOutcome =
   /** The agent was started in this tab's pane, which is attached to it. */
   | { kind: 'started' }
-  /** The pane shows how the launch ended: couldn't start, or couldn't confirm it started. */
-  | { kind: 'pane-says' }
   /** The user closed the tab while it started, and with it the launch: nothing more to say. */
   | { kind: 'closed-by-user' }
-  /** The tab is gone, so the window says it: nothing started, or whether it did is unknown. */
+  /** The window says it: nothing started (its tab is gone), or the host took the pane and then
+   *  failed, so whether its agent runs there is unknown. */
   | { kind: 'not-started'; unconfirmed: boolean; code?: string }
-
-/** Refused at admission: nothing ran under this click, and the host takes back the tab it was shown. */
-const ADMISSION_REFUSAL_CODES = new Set([
-  'agent_session_operation_invalid',
-  'agent_session_operation_conflict',
-  'agent_session_operation_expired',
-  'agent_session_operation_capacity'
-])
 
 function tabExists(worktreeId: string, tabId: string): boolean {
   return (useAppStore.getState().tabsByWorktree[worktreeId] ?? []).some((tab) => tab.id === tabId)
@@ -78,11 +68,11 @@ function closeLaunchTab(worktreeId: string, tabId: string): void {
   }
 }
 
-// Only a terminal in this pane is one the window can paste into; anything else, its pane explains.
+// Only a terminal in this pane is one the window can paste into.
 function outcomeFromResult(result: unknown): HostAgentLaunchOutcome {
   return isAgentLaunchResult(result) && result.outcome.kind === 'terminal'
     ? { kind: 'started' }
-    : { kind: 'pane-says' }
+    : { kind: 'not-started', unconfirmed: true }
 }
 
 function stringSessionOptions(options: Record<string, SessionOptionValue> | undefined): {
@@ -113,27 +103,29 @@ async function settleLaunch(
   send: Promise<unknown>,
   releaseHold: () => void
 ): Promise<HostAgentLaunchOutcome> {
+  const closedByUser = (): boolean => !tabExists(args.worktreeId, pane.tabId)
   try {
-    return outcomeFromResult(await send)
+    const result = await send
+    // Closed while it started: the window stopped its agent as the tab's reveal arrived.
+    return closedByUser() ? { kind: 'closed-by-user' } : outcomeFromResult(result)
   } catch (error) {
-    const code = error instanceof RuntimeRpcCallError ? error.code : undefined
-    if (code === AGENT_LAUNCH_TAB_CLOSED_CODE) {
+    if (closedByUser()) {
       return { kind: 'closed-by-user' }
     }
-    // The host took the pane once it showed the tab; a pane it never took would open as a shell,
-    // and a refused one is the host's to take back.
+    const code = error instanceof RuntimeRpcCallError ? error.code : undefined
+    // The host revealed the pane once its agent spawned; a pane it never took would open as a
+    // shell, so its tab goes. A taken pane holds whatever runs there.
     const hostTookPane = !isAgentLaunchPaneSpawnHeld(pane.tabId, pane.leafId)
-    if (!hostTookPane || (code !== undefined && ADMISSION_REFUSAL_CODES.has(code))) {
+    if (!hostTookPane) {
       closeLaunchTab(args.worktreeId, pane.tabId)
-      return {
-        kind: 'not-started',
-        unconfirmed: code === 'agent_session_operation_unknown',
-        ...(code ? { code } : {})
-      }
     }
-    return { kind: 'pane-says' }
+    return { kind: 'not-started', unconfirmed: hostTookPane, ...(code ? { code } : {}) }
   } finally {
     releaseHold()
+    // The launch is over: its tab is an ordinary one, as a settled verdict leaves it.
+    if (!closedByUser()) {
+      useAppStore.getState().setTabAgentLaunchPane(pane.tabId, undefined)
+    }
   }
 }
 
@@ -152,10 +144,9 @@ export function launchAgentThroughHost(args: HostAgentLaunchArgs): {
   const leafId = createBrowserUuid()
   // Before the tab exists, so its first mount already waits.
   const releaseHold = holdAgentLaunchPaneSpawn(tabId, leafId)
-  const send = callRuntimeRpc<unknown>({ kind: 'local' }, 'agent.launchReplay', {
+  const send = callRuntimeRpc<unknown>({ kind: 'local' }, 'agent.launch', {
     ...launchParams(args),
-    // A new click is a new operation; the pane is this click's too.
-    operationId: createAgentSessionOperationId(),
+    // The pane is this click's.
     paneKey: makePaneKey(tabId, leafId)
   })
   store.createTab(args.worktreeId, args.groupId, undefined, {
