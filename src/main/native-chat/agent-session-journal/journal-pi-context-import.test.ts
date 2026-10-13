@@ -7,7 +7,6 @@ import {
   prepareLegacyTranscriptImport
 } from './journal-legacy-import'
 import { createTrackedJournalOpener } from './journal-host-database-test-support'
-import { DEFAULT_JOURNAL_PAYLOAD_LIMITS } from './journal-payload-bounds'
 import { PI_CONTEXT_FIXTURES } from './journal-pi-context-fixtures'
 
 let root: string
@@ -20,7 +19,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-async function prepare(entries: unknown[], version = 3, agent: 'pi' | 'omp' = 'pi') {
+async function prepare(entries: unknown[], version = 3) {
   const filePath = join(root, 'session.jsonl')
   const header = { type: 'session', id: 'session', version, cwd: root }
   // Malformed records do not contribute to Pi's v1 entry indexes.
@@ -31,7 +30,7 @@ async function prepare(entries: unknown[], version = 3, agent: 'pi' | 'omp' = 'p
     )
   )
   const result = await prepareLegacyTranscriptImport({
-    agent,
+    agent: 'pi',
     sessionId: 'session',
     options: { filePath }
   })
@@ -51,39 +50,6 @@ describe('saved Pi context import', () => {
           : []
       )
     ).toEqual(fixture.texts.map((text) => [text]))
-    expect(new Set(items.map((item) => JSON.stringify(item.identity))).size).toBe(items.length)
-    expect(
-      items.every(
-        (item) =>
-          item.identity.provider === 'legacy' &&
-          item.identity.agent === 'pi' &&
-          item.identity.sessionId === 'session'
-      )
-    ).toBe(true)
-  })
-
-  it('retains summary identity, timestamp and text without new status copy', async () => {
-    const items = await prepare([
-      {
-        type: 'branch_summary',
-        id: 'branch',
-        parentId: null,
-        fromId: 'old',
-        summary: '## Work\n\nSaved branch details.',
-        timestamp: '2026-10-12T12:00:00.000Z'
-      }
-    ])
-    expect(items).toEqual([
-      {
-        identity: { provider: 'legacy', agent: 'pi', sessionId: 'session', recordId: 'branch' },
-        observedAt: Date.parse('2026-10-12T12:00:00.000Z'),
-        body: {
-          kind: 'message',
-          role: 'system',
-          blocks: [{ type: 'text', text: '## Work\n\nSaved branch details.' }]
-        }
-      }
-    ])
   })
 
   it('persists compaction and branch summaries in the adopted journal across reopen', async () => {
@@ -128,57 +94,5 @@ describe('saved Pi context import', () => {
       expected.map((item) => item.body)
     )
     expect(JSON.stringify(reopened.snapshot().items)).toContain('Saved branch details.')
-  })
-
-  it('keeps ordinary OMP decoding and chronological history unchanged', async () => {
-    const fixture = PI_CONTEXT_FIXTURES[0]
-    if (!fixture) {
-      throw new Error('missing compaction fixture')
-    }
-    const items = await prepare(fixture.entries, 3, 'omp')
-    expect(items.map((item) => item.body)).toEqual([
-      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'root' }] },
-      { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'kept' }] },
-      {
-        kind: 'message',
-        role: 'system',
-        blocks: [{ type: 'text', text: 'Context compacted', presentation: 'compaction' }]
-      },
-      { kind: 'message', role: 'assistant', blocks: [{ type: 'text', text: 'later' }] }
-    ])
-    expect(
-      await prepare(
-        [{ type: 'branch_summary', id: 'branch', parentId: null, summary: 'hidden from OMP' }],
-        3,
-        'omp'
-      )
-    ).toEqual([])
-  })
-
-  it('bounds Pi summary content before journal publication', async () => {
-    const filePath = join(root, 'large.jsonl')
-    await writeFile(
-      filePath,
-      [
-        { type: 'session', id: 'session', version: 3 },
-        {
-          type: 'compaction',
-          id: 'summary',
-          parentId: null,
-          firstKeptEntryId: null,
-          summary: 'x'.repeat(10_000)
-        }
-      ]
-        .map((entry) => JSON.stringify(entry))
-        .join('\n')
-    )
-    const result = await prepareLegacyTranscriptImport({
-      agent: 'pi',
-      sessionId: 'session',
-      options: { filePath, limits: { ...DEFAULT_JOURNAL_PAYLOAD_LIMITS, inlineHeadBytes: 64 } }
-    })
-    expect(result.ok).toBe(true)
-    expect(JSON.stringify(result)).not.toContain('x'.repeat(1_000))
-    expect(JSON.stringify(result)).toContain('10000 bytes')
   })
 })

@@ -411,7 +411,7 @@ describe('adopting a conversation recorded outside Orca', () => {
     expect(resolveStructuredAgentSessionLocation).not.toHaveBeenCalled()
   })
 
-  it("names a Pi chat's adopted handle by the session file it found, under that file's account", async () => {
+  it('adopts the original Pi file into a folder workspace and refuses another folder', async () => {
     const accountHome = await mkdtemp(join(tmpdir(), 'orca-pi-adopt-intent-'))
     vi.stubEnv('PI_CODING_AGENT_DIR', accountHome)
     try {
@@ -435,14 +435,15 @@ describe('adopting a conversation recorded outside Orca', () => {
       vi.spyOn(runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({
         supported: true
       })
+      let workspaceDirectory = '/repos/workspace-1'
       Object.assign(runtime, {
         resolveStructuredAgentSessionLocation: vi.fn(async () => ({
           executionHostId: 'local',
           wslDistro: null,
           workspaceId: 'workspace-1',
-          workspaceKind: 'git-worktree' as const
+          workspaceKind: 'folder' as const
         })),
-        resolveRuntimeFileTarget: vi.fn(async () => ({ worktree: { path: '/repos/workspace-1' } }))
+        resolveRuntimeFileTarget: vi.fn(async () => ({ worktree: { path: workspaceDirectory } }))
       })
 
       const intent = await runtime.resolveStructuredAgentSessionCreateIntent({
@@ -457,50 +458,12 @@ describe('adopting a conversation recorded outside Orca', () => {
         providerHandle: { transport: 'jsonl-rpc', agent: 'pi', nativeId: file },
         transcriptPath: file
       })
-    } finally {
-      vi.unstubAllEnvs()
-      await rm(accountHome, { recursive: true, force: true })
-    }
-  })
 
-  it('refuses Pi adoption when a folder workspace would fork the source', async () => {
-    const accountHome = await mkdtemp(join(tmpdir(), 'orca-pi-adopt-folder-'))
-    vi.stubEnv('PI_CODING_AGENT_DIR', accountHome)
-    try {
-      const file = join(
-        accountHome,
-        'sessions',
-        '--source--',
-        '2026-10-12T00-00-00-000Z_0198c2a4-7d1e-7c3a-9a4b-1f2e3d4c5b6a.jsonl'
-      )
-      await mkdir(dirname(file), { recursive: true })
-      await writeFile(
-        file,
-        `${JSON.stringify({ type: 'session', id: '0198c2a4-7d1e-7c3a-9a4b-1f2e3d4c5b6a', cwd: '/source' })}\n`
-      )
-      const runtime = new OrcaRuntimeService(
-        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: create intent only reads getSettings from the store.
-        {
-          getSettings: () => ({ agentDefaultEnv: { pi: { PI_CODING_AGENT_DIR: accountHome } } })
-        } as never
-      )
-      vi.spyOn(runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({
-        supported: true
-      })
-      Object.assign(runtime, {
-        resolveStructuredAgentSessionLocation: vi.fn(async () => ({
-          executionHostId: 'local',
-          wslDistro: null,
-          workspaceId: 'folder-1',
-          workspaceKind: 'folder' as const
-        })),
-        resolveRuntimeFileTarget: vi.fn(async () => ({ worktree: { path: '/different-folder' } }))
-      })
-
+      workspaceDirectory = '/different-folder'
       await expect(
         runtime.resolveStructuredAgentSessionCreateIntent({
-          envelope: { sessionId: 'session-1', clientOperationId: 'operation-1' },
-          worktree: 'id:folder-1',
+          envelope: { sessionId: 'session-2', clientOperationId: 'operation-2' },
+          worktree: 'id:workspace-1',
           agent: 'pi',
           resumeFrom: { providerSessionId: '0198c2a4-7d1e-7c3a-9a4b-1f2e3d4c5b6a' }
         })

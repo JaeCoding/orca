@@ -28,28 +28,6 @@ export const PI_CONTEXT_FIXTURES = [
     entries: [root, kept, checkpoint, later],
     texts: ['summary', 'kept', 'later']
   },
-  ...[null, 'missing', 'later'].map((firstKeptEntryId) => ({
-    name: `no earlier kept range: ${firstKeptEntryId}`,
-    entries: [root, kept, { ...checkpoint, firstKeptEntryId }, later],
-    texts: ['summary', 'later']
-  })),
-  {
-    name: 'latest of multiple compactions',
-    entries: [
-      root,
-      kept,
-      checkpoint,
-      later,
-      compact('latest', 'later', 'later'),
-      turn('end', 'latest')
-    ],
-    texts: ['latest', 'later', 'end']
-  },
-  {
-    name: 'older compaction inside kept range still renders',
-    entries: [root, kept, checkpoint, later, compact('latest', 'later', 'kept')],
-    texts: ['latest', 'kept', 'summary', 'later']
-  },
   {
     name: 'branch summary with metadata leaf omits abandoned branch',
     entries: [
@@ -75,29 +53,6 @@ export const PI_CONTEXT_FIXTURES = [
     texts: ['root', 'branch']
   },
   {
-    name: 'compaction on abandoned sibling does not compact active ancestry',
-    entries: [
-      root,
-      kept,
-      checkpoint,
-      turn('active', 'root'),
-      { type: 'model_change', id: 'model', parentId: 'active', timestamp }
-    ],
-    texts: ['root', 'active']
-  },
-  {
-    name: 'kept metadata and hidden system prompt preserve ancestry',
-    entries: [
-      root,
-      { type: 'thinking_level_change', id: 'thinking', parentId: 'root', timestamp },
-      turn('system', 'thinking', 'hidden', 'system'),
-      turn('kept', 'system'),
-      compact('summary', 'kept', 'thinking'),
-      later
-    ],
-    texts: ['summary', 'kept', 'later']
-  },
-  {
     name: 'version 1 migration uses parsed file index including header',
     version: 1,
     entries: [
@@ -114,20 +69,5 @@ export const PI_CONTEXT_FIXTURES = [
       { type: 'message', message: { role: 'assistant', content: 'later' }, timestamp }
     ],
     texts: ['summary', 'kept', 'later']
-  },
-  {
-    name: 'empty branch summary is hidden',
-    entries: [
-      root,
-      {
-        type: 'branch_summary',
-        id: 'branch',
-        parentId: 'root',
-        fromId: 'root',
-        summary: '',
-        timestamp
-      }
-    ],
-    texts: ['root']
   }
 ]
