@@ -1,8 +1,8 @@
 // Hydrating a journal from a bridge-era transcript.
 //
-// This reuses the existing per-agent transcript decoders verbatim — a second
-// parser would drift from the one the live view already uses. The decoders
-// return a render model with no identity, so the import wraps them: the wrapper
+// Ordinary messages reuse the existing per-agent transcript decoders; Pi also
+// projects its saved branch and summaries. The decoders return a render model
+// with no identity, so the import wraps them: the wrapper
 // reads an identity anchor off the SAME raw line, then delegates the content.
 //
 // Import always opens a fresh epoch. The imported timeline is a best-effort
@@ -30,9 +30,8 @@ import {
 import { decodeTranscriptStream } from '../transcript-stream-lines'
 import { readOpenCodeNativeChatTranscriptFull } from '../transcript-opencode'
 import { boundSubagentEntryId } from '../subagent-entry-id-bounds'
-import { parseJsonObject } from '../../ai-vault/session-scanner-values'
 import { createLegacyIdentityTracker } from './journal-legacy-identity'
-import { selectActivePiBranch, type PiTranscriptBranchEntry } from './journal-pi-active-branch'
+import { createPiTranscriptCollector } from './journal-pi-active-branch'
 import type { JournalReplacementItem } from './journal-epoch-replacement'
 import {
   boundInlineText,
@@ -208,9 +207,7 @@ async function decodeWithIdentities(input: {
   })
   const decode = TRANSCRIPT_DECODERS[input.transcriptAgent]
   const identities: AgentJournalItemIdentity[] = []
-  const piEntries: PiTranscriptBranchEntry[] = []
-  let piVersion = 1
-  let piPreviousId: string | null = null
+  const pi = input.agent === 'pi' ? createPiTranscriptCollector() : null
   let lineIndex = 0
 
   // Count raw bytes while reading: the source can grow after the stat check.
@@ -222,22 +219,11 @@ async function decodeWithIdentities(input: {
     (line, fallbackId) => {
       const trackedIdentity = tracker.identify(line, lineIndex)
       lineIndex += 1
-      const message = decode(line, fallbackId)
-      if (input.agent === 'pi') {
-        const record = parseJsonObject(line)
-        if (record?.type === 'session') {
-          piVersion = typeof record.version === 'number' ? record.version : 1
-        } else if (record) {
-          const id = piVersion < 2 ? `#${lineIndex}` : record.id
-          const parentId = piVersion < 2 ? piPreviousId : record.parentId
-          if (typeof id !== 'string' || !(parentId === null || typeof parentId === 'string')) {
-            throw new Error('Pi session entry has no valid branch identity')
-          }
-          piEntries.push({ id, parentId, message, identity: trackedIdentity })
-          piPreviousId = id
-        }
-        return message
+      if (pi) {
+        pi.record(line, fallbackId, trackedIdentity)
+        return null
       }
+      const message = decode(line, fallbackId)
       if (message) {
         identities.push(
           input.decodedMessageIdentities
@@ -255,8 +241,8 @@ async function decodeWithIdentities(input: {
     true,
     MAX_LEGACY_IMPORT_SOURCE_BYTES
   )
-  if (input.agent === 'pi') {
-    return selectActivePiBranch(piEntries)
+  if (pi) {
+    return pi.project()
   }
   return { messages, identities }
 }
