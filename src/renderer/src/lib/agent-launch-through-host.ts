@@ -63,7 +63,7 @@ function tabExists(worktreeId: string, tabId: string): boolean {
 
 function closeLaunchTab(worktreeId: string, tabId: string): void {
   if (tabExists(worktreeId, tabId)) {
-    // Not the user's close: it isn't reopenable, and an agent that turns up late gets its own tab.
+    // Not the user's close, so not reopenable; its tombstone still stops an agent that starts late.
     useAppStore.getState().closeTab(tabId, {
       reason: 'cleanup',
       recordInteraction: false,
