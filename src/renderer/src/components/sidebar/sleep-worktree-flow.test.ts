@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => {
     shutdownWorktreeTerminals: ReturnType<typeof vi.fn>
     suppressPtyExit: ReturnType<typeof vi.fn>
     consumeSuppressedPtyExit: ReturnType<typeof vi.fn>
+    unifiedTabsByWorktree: Record<string, Record<string, unknown>[]>
     tabsByWorktree: Record<string, { id: string }[]>
     ptyIdsByTabId: Record<string, string[]>
   } = {
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => {
     shutdownWorktreeTerminals: vi.fn().mockResolvedValue(undefined),
     suppressPtyExit: vi.fn(),
     consumeSuppressedPtyExit: vi.fn(),
+    unifiedTabsByWorktree: {},
     tabsByWorktree: {} as Record<string, { id: string }[]>,
     ptyIdsByTabId: {} as Record<string, string[]>
   }
@@ -26,8 +28,10 @@ const mocks = vi.hoisted(() => {
   const toastError = vi.fn()
   const markWorktreeSleepIntent = vi.fn()
   const clearWorktreeSleepIntent = vi.fn()
+  const sleepChat = vi.fn().mockResolvedValue(undefined)
   return {
     clearWorktreeSleepIntent,
+    sleepChat,
     markWorktreeSleepIntent,
     state,
     suspendWorkspace,
@@ -46,6 +50,14 @@ vi.mock('@/lib/worktree-sleep-intent', () => ({
   clearWorktreeSleepIntent: mocks.clearWorktreeSleepIntent,
   markWorktreeSleepIntent: mocks.markWorktreeSleepIntent,
   withWorktreeSleepTeardown: (_worktreeId: string, teardown: () => Promise<unknown>) => teardown()
+}))
+
+vi.mock('@/runtime/structured-agent-session-owner', () => ({
+  structuredAgentSessionTargetForHost: () => ({ kind: 'local' })
+}))
+vi.mock('@/runtime/structured-agent-session-close', () => ({
+  AGENT_SESSION_SLEEP_UNSUPPORTED: 'agent_session_sleep_unsupported',
+  sleepStructuredAgentSession: mocks.sleepChat
 }))
 
 import { runSleepWorktree, runSleepWorktrees } from './sleep-worktree-flow'
@@ -73,6 +85,41 @@ describe('runSleepWorktree', () => {
     mocks.state.activeWorktreeId = null
     mocks.state.tabsByWorktree = {}
     mocks.state.ptyIdsByTabId = {}
+    mocks.state.unifiedTabsByWorktree = {}
+    mocks.sleepChat.mockClear().mockResolvedValue(undefined)
+  })
+
+  const chatTab = {
+    id: 'chat-1',
+    entityId: 'session-1',
+    worktreeId: 'wt-1',
+    contentType: 'agent-session',
+    agentSessionAgent: 'claude'
+  }
+
+  it("stops a workspace's chat agents", async () => {
+    mocks.state.unifiedTabsByWorktree = { 'wt-1': [chatTab] }
+
+    await runSleepWorktree('wt-1')
+
+    expect(mocks.sleepChat).toHaveBeenCalledWith({ kind: 'local' }, 'session-1')
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it('keeps the workspace awake when its host cannot stop chats', async () => {
+    mocks.state.unifiedTabsByWorktree = { 'wt-1': [chatTab] }
+    mocks.sleepChat.mockRejectedValue(new Error('agent_session_sleep_unsupported'))
+
+    await runSleepWorktree('wt-1')
+
+    expect(mocks.clearWorktreeSleepIntent).toHaveBeenCalledWith('wt-1')
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      'Failed to sleep workspace',
+      expect.objectContaining({
+        description:
+          "This workspace's host can't stop its chats yet. The workspace was kept open; update the host and try again."
+      })
+    )
   })
 
   it('tears down browsers before terminals on the sleep path', async () => {
