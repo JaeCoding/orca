@@ -51,8 +51,10 @@ export function createLaunchFunnelStore(): {
   seedNativeChatLaunchPrompt: ReturnType<typeof vi.fn>
   seedNativeChatLaunchDraft: ReturnType<typeof vi.fn>
   markNativeChatLaunchPromptFailed: ReturnType<typeof vi.fn>
+  setTabAgentLaunchPane: ReturnType<typeof vi.fn>
+  closeTab: ReturnType<typeof vi.fn>
 } {
-  return {
+  const store = {
     settings: launchFunnelSettings(),
     repos: [],
     allWorktrees: vi.fn(() => []),
@@ -60,7 +62,7 @@ export function createLaunchFunnelStore(): {
     openFiles: [],
     browserTabsByWorktree: {},
     tabBarOrderByWorktree: {},
-    createTab: vi.fn(() => ({ id: 'tab-1' })),
+    createTab: vi.fn(),
     queueTabInitialCwd: vi.fn(),
     queueTabStartupCommand: vi.fn(),
     setActiveTabType: vi.fn(),
@@ -68,7 +70,23 @@ export function createLaunchFunnelStore(): {
     setAgentStatus: vi.fn(),
     seedNativeChatLaunchPrompt: vi.fn(),
     seedNativeChatLaunchDraft: vi.fn(),
-    markNativeChatLaunchPromptFailed: vi.fn()
+    markNativeChatLaunchPromptFailed: vi.fn(),
+    setTabAgentLaunchPane: vi.fn(),
+    closeTab: vi.fn()
+  }
+  store.createTab.mockImplementation(createTabInto(store))
+  return store
+}
+
+/** A tab made with its own id joins the workspace, as the real store's does; launches read it back. */
+function createTabInto(store: { tabsByWorktree: Record<string, { id: string }[]> }) {
+  return (worktreeId: string, _groupId?: string, _x?: unknown, opts?: { id?: string }) => {
+    if (!opts?.id) {
+      return { id: 'tab-1' }
+    }
+    const tab = { id: opts.id }
+    store.tabsByWorktree[worktreeId] = [...(store.tabsByWorktree[worktreeId] ?? []), tab]
+    return tab
   }
 }
 
@@ -84,7 +102,7 @@ export function resetLaunchFunnelStore(
   store.openFiles = []
   store.browserTabsByWorktree = {}
   store.tabBarOrderByWorktree = {}
-  store.createTab.mockReturnValue({ id: 'tab-1' })
+  store.createTab.mockImplementation(createTabInto(store))
 }
 
 /** The startup command `queueTabStartupCommand` received, or undefined when no tab was queued. */
