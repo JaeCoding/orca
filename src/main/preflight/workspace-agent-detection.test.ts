@@ -246,6 +246,24 @@ describe('resolveWorkspaceAgentDetectionHost on a Windows host', () => {
       context: wslContext('Ubuntu-24.04', 'r1', 'project-override')
     })
   })
+  // The agent list reads the folder's own host, as main does; only launches also read its group's.
+  it("keeps a folder's repo runtime when only its group names another host", () => {
+    _setWslCachesForTests({ available: true, distros: ['Ubuntu'] })
+    const s = store({
+      repos: [
+        repo({ id: 'r1', path: 'C:\\src\\r1', executionHostId: 'local', projectGroupId: 'g1' })
+      ],
+      projects: [project('p1', ['r1'], { kind: 'wsl', distro: 'Ubuntu' })],
+      projectGroups: [{ ...GROUP, executionHostId: 'runtime:paired' }],
+      folderWorkspaces: [{ ...FOLDER, folderPath: 'C:\\work' }]
+    })
+    expect(resolveFor(s, folderWorkspaceKey('f1'))).toMatchObject({
+      kind: 'local',
+      context: {
+        projectRuntime: { status: 'resolved', runtime: { kind: 'wsl', distro: 'Ubuntu' } }
+      }
+    })
+  })
   it('refuses a folder whose candidate repos live on different SSH hosts', () => {
     const s = store({
       repos: [

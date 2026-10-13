@@ -1,15 +1,20 @@
 import { WORKSPACE_ON_OTHER_RUNTIME } from '../../shared/protocol-version'
 import {
+  getRepoExecutionHostId,
   getSshTargetIdForExecutionHost,
   LOCAL_EXECUTION_HOST_ID,
   parseExecutionHostId
 } from '../../shared/execution-host'
-import { resolveFolderWorkspaceHost } from '../../shared/folder-workspace-execution-host'
+import {
+  findFolderWorkspaceCandidateRepos,
+  resolveFolderWorkspaceHost
+} from '../../shared/folder-workspace-execution-host'
+import type { FolderWorkspace } from '../../shared/folder-workspace-types'
+import type { ProjectGroup } from '../../shared/project-group-types'
 import type { Repo } from '../../shared/repo-types'
 import {
-  findLocalFolderWorkspaceRuntimeRepo,
   resolveLocalWorkspaceRuntime,
-  type LaunchScopeRuntimeStore
+  type ProjectRuntimeResolutionStore
 } from '../local-project-runtime-resolution'
 import type { PreflightRuntimeContext } from '../ipc/preflight-runtime-target'
 import { resolveWorktreeHostRouting } from '../runtime/worktree-launch-host-repo'
@@ -25,7 +30,11 @@ export type AgentDetectionHost =
   | { kind: 'local'; context?: PreflightRuntimeContext }
   | { kind: 'ssh'; connectionId: string }
 
-export type WorkspaceAgentDetectionStore = LaunchScopeRuntimeStore
+export type WorkspaceAgentDetectionStore = ProjectRuntimeResolutionStore & {
+  getRepos?: () => Repo[]
+  getFolderWorkspaces?: () => FolderWorkspace[]
+  getProjectGroups?: () => ProjectGroup[]
+}
 
 export const HOST_DEFAULT_AGENT_DETECTION: AgentDetectionHost = { kind: 'local' }
 
@@ -108,8 +117,13 @@ function resolveFolderWorkspace(
     throw new Error(WORKSPACE_ON_OTHER_RUNTIME)
   }
   const folder = state.folderWorkspaces.find((entry) => entry.id === folderWorkspaceId)
-  const repo = findLocalFolderWorkspaceRuntimeRepo(state, folderWorkspaceId)
-  return host.kind === 'local' && folder && repo
+  const candidates = findFolderWorkspaceCandidateRepos(state, folderWorkspaceId)
+  // Why one candidate: a folder spanning several repos has no single project runtime to pick.
+  const repo = candidates.length === 1 ? candidates[0] : undefined
+  return host.kind === 'local' &&
+    folder &&
+    repo &&
+    getRepoExecutionHostId(repo) === LOCAL_EXECUTION_HOST_ID
     ? { kind: 'local', repo, path: folder.folderPath }
     : null
 }
