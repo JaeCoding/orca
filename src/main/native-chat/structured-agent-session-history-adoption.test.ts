@@ -243,7 +243,9 @@ describe('resolveStructuredAgentSessionAdoption', () => {
           unmanaged
         ],
         resolveTranscript: async ({ accountHome }) =>
-          accountHome === unmanaged ? '/home/dev/.local/share/opencode/opencode.db' : null
+          accountHome === unmanaged ? '/home/dev/.local/share/opencode/opencode.db' : null,
+        launchEnv: {},
+        workspaceCwd: '/repo'
       })
     ).resolves.toEqual({
       accountHome: unmanaged,
