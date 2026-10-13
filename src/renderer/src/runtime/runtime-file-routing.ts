@@ -6,6 +6,7 @@ import { normalizeRelativePath } from '@/lib/path'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import type { RuntimeFileOperationArgs } from './runtime-file-client-types'
+import { chatScratchFileAddress } from './runtime-chat-scratch-file-address'
 
 export function assertExternalSshReadOwnership(
   target: RuntimeClientTarget,
@@ -75,17 +76,21 @@ export function getRemoteFileArgs(
   relativePath: string
 } | null {
   const target = context.target
-  if (target.kind !== 'environment' || !context.worktreeId) {
+  // A chat's scratch file is addressed by its folder on the host, whatever workspace opened it.
+  const scratch = chatScratchFileAddress(absolutePath)
+  const worktreeId = scratch?.worktreeSelector ?? context.worktreeId
+  if (target.kind !== 'environment' || !worktreeId) {
     return null
   }
-  const relativePath = getRelativePathInsideWorktree(context.worktreePath, absolutePath)
+  const relativePath =
+    scratch?.relativePath ?? getRelativePathInsideWorktree(context.worktreePath, absolutePath)
   if (relativePath === null) {
     return null
   }
   return {
     target,
-    worktreeId: context.worktreeId,
-    worktreeSelector: toRuntimeWorktreeSelector(context.worktreeId),
+    worktreeId,
+    worktreeSelector: scratch?.worktreeSelector ?? toRuntimeWorktreeSelector(worktreeId),
     relativePath
   }
 }

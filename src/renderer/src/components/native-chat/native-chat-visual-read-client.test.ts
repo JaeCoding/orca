@@ -33,7 +33,7 @@ describe('readNativeChatVisual', () => {
     callRuntimeRpc.mockResolvedValueOnce({ ok: true, revision: 'r1', sizeBytes: 3, html: '<p>' })
     expect(await readNativeChatVisual(remote)).toEqual({
       ok: true,
-      document: { revision: 'r1', html: '<p>' }
+      document: { revision: 'r1', html: '<p>', path: null }
     })
     expect(callRuntimeRpc).toHaveBeenCalledWith(
       remote.target,
@@ -54,7 +54,7 @@ describe('readNativeChatVisual', () => {
     })
     expect(await readNativeChatVisual(local)).toEqual({
       ok: true,
-      document: { revision: 'r1', html: '<p>' }
+      document: { revision: 'r1', html: '<p>', path: null }
     })
     expect(callRuntimeRpc.mock.calls[1][2]).toEqual({
       sessionId: 'session-alpha',
@@ -69,7 +69,7 @@ describe('readNativeChatVisual', () => {
     callRuntimeRpc.mockResolvedValueOnce({ ok: true, revision: 'r2', sizeBytes: 4, html: '<hr>' })
     expect(await readNativeChatVisual(local)).toEqual({
       ok: true,
-      document: { revision: 'r2', html: '<hr>' }
+      document: { revision: 'r2', html: '<hr>', path: null }
     })
     expect(peekCachedNativeChatVisual(local)?.revision).toBe('r2')
   })
@@ -122,7 +122,7 @@ describe('readNativeChatVisual', () => {
       .mockResolvedValueOnce({ ok: true, revision: 'r1', sizeBytes: 3, html: '<p>' })
     expect(await readNativeChatVisual(local)).toEqual({
       ok: true,
-      document: { revision: 'r1', html: '<p>' }
+      document: { revision: 'r1', html: '<p>', path: null }
     })
   })
 

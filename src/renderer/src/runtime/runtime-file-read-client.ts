@@ -18,6 +18,7 @@ import {
   hasRemoteRuntimeOwner
 } from './runtime-file-routing'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
+import { chatScratchFileAddress } from './runtime-chat-scratch-file-address'
 import { isAgentSessionAttachmentStorePath } from '../../../shared/agent-session-attachments'
 import type { LocalFileAccess } from '../../../shared/local-file-access'
 import { readRuntimeTerminalArtifactContent } from './runtime-terminal-artifact-read'
@@ -64,17 +65,19 @@ export async function readRuntimeFileContent({
       grantId: terminalArtifactGrantId
     })
   }
-  if (!canReadRelativeRuntimeFile(relativePath)) {
+  const scratch = chatScratchFileAddress(filePath)
+  const readPath = scratch?.relativePath ?? relativePath
+  if (!canReadRelativeRuntimeFile(readPath)) {
     throw new Error('Remote file is outside the owning runtime worktree')
   }
 
-  const worktree = toRuntimeWorktreeSelector(worktreeId)
+  const worktree = scratch?.worktreeSelector ?? toRuntimeWorktreeSelector(worktreeId)
   let result: RuntimeFileReadResult
   try {
     result = await callRuntimeRpc<RuntimeFileReadResult>(
       target,
       'files.read',
-      { worktree, relativePath },
+      { worktree, relativePath: readPath },
       { timeoutMs: 15_000 }
     )
   } catch (err) {
@@ -85,7 +88,7 @@ export async function readRuntimeFileContent({
       return callRuntimeRpc<RuntimeFilePreviewResult>(
         target,
         'files.readPreview',
-        { worktree, relativePath },
+        { worktree, relativePath: readPath },
         { timeoutMs: 15_000 }
       )
     }
