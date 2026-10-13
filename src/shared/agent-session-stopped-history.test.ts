@@ -157,8 +157,8 @@ describe('which stopped messages the agent is owed', () => {
   })
 
   it('owes none too large to deliver beside any send, though it was admissible as a send', () => {
-    // A send's words cost their JSON string plus each stopped message's framing; an empty send costs 2.
-    const largest = 'x'.repeat(MAX_PROMPT_BYTES - STOPPED_MESSAGE_FRAMING_BYTES - 4)
+    // Each costs its words' JSON string plus framing; the smallest send that carries costs 3.
+    const largest = 'x'.repeat(MAX_PROMPT_BYTES - STOPPED_MESSAGE_FRAMING_BYTES - 5)
     const tooLarge = 'x'.repeat(262_000)
     expect(SendBody.safeParse(message(tooLarge)).success).toBe(true)
     const bodies = { largest: message(largest), tooLarge: message(tooLarge) }
@@ -335,6 +335,14 @@ describe('what one delivery holds', () => {
     expect(
       selectStoppedHistory([stopped('a', 'first'), stopped('b', big)], message(big))
     ).toBeNull()
+  })
+
+  it('delivers the largest message still owed beside a one-letter send', () => {
+    const largest = stopped('b', 'x'.repeat(MAX_PROMPT_BYTES - STOPPED_MESSAGE_FRAMING_BYTES - 5))
+    expect(selectStoppedHistory([stopped('a', 'first'), largest], message('x'))).toEqual({
+      messages: [largest],
+      covers: ['a', 'b']
+    })
   })
 
   it('counts each message with the framing of either transport, and the send beside them', () => {

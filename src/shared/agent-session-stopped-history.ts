@@ -100,7 +100,7 @@ function deliveryBytes(words: string): number {
 }
 
 /** The stopped messages owed to the agent, in the order they were sent. One too large to deliver
- *  beside any send is not owed, so it never holds the others back. */
+ *  beside even a one-letter send is not owed, so it never holds the others back. */
 export function agentSessionStoppedHistoryOwed(
   journal: StoppedHistoryJournal
 ): OwedStoppedMessage[] {
@@ -128,7 +128,7 @@ export function agentSessionStoppedHistoryOwed(
       const { clientMessageId, acceptedSequence } = submission
       const body = journal.body(clientMessageId)
       const words = isOrdinaryPersonMessage(body) ? messageWords(body) : ''
-      return words.length > 0 && deliveryBytes(words) + wordsBytes('') <= MAX_PROMPT_BYTES
+      return words.length > 0 && deliveryBytes(words) + wordsBytes('x') <= MAX_PROMPT_BYTES
         ? [{ clientMessageId, words, acceptedSequence }]
         : []
     })
