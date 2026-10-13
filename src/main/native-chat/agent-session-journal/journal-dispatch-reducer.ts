@@ -75,7 +75,8 @@ export function applyJournalDispatchRow(
   })
 }
 
-/** A later pending row of the same send replaces what it carries; a malformed id is dropped. */
+/** A send is handed over once, so its one pending row names what it carries; a malformed id is
+ *  dropped. */
 function foldStoppedHistoryCarried(
   state: JournalReducerState,
   row: Extract<JournalRow, { kind: 'dispatch' }>
@@ -85,8 +86,6 @@ function foldStoppedHistoryCarried(
     : []
   if (carried.length > 0) {
     state.stoppedHistoryCarried.set(row.clientMessageId, carried)
-  } else {
-    state.stoppedHistoryCarried.delete(row.clientMessageId)
   }
 }
 

@@ -14,10 +14,8 @@ import {
   agentSessionSendDeliversStoppedHistory,
   agentSessionStoppedHistoryOwed,
   selectStoppedHistory,
-  stoppedHistoryBudget,
   type StoppedHistoryDelivery
 } from '../../../shared/agent-session-stopped-history'
-import { summarizeStructuredAgentContextFacts } from '../../../shared/structured-agent-session-context-usage'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { JournalStoppedHistory } from '../agent-session-journal/journal-stopped-message-injections'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
@@ -27,10 +25,7 @@ import type { StructuredAgentSessionLogger } from './structured-agent-session-lo
 type StoppedHistoryContext = {
   sessionId: string
   fence: number
-  journal: Pick<
-    AgentSessionJournal,
-    'submissions' | 'itemBody' | 'liveTurnScope' | 'contextUsage'
-  > & {
+  journal: Pick<AgentSessionJournal, 'submissions' | 'itemBody' | 'liveTurnScope'> & {
     context: Pick<AgentSessionJournal['context'], 'floor'>
     stoppedHistory: Pick<JournalStoppedHistory, 'carried' | 'injected' | 'recordInjection'>
   }
@@ -58,8 +53,7 @@ function stoppedHistoryDelivery(
       injected: ctx.journal.stoppedHistory.injected(),
       clearSequence: ctx.journal.context.floor()?.sequence ?? 0,
       body: (id) => ctx.journal.itemBody(agentJournalSubmissionKey(id))
-    }),
-    stoppedHistoryBudget(summarizeStructuredAgentContextFacts(ctx.journal.contextUsage()), body)
+    })
   )
 }
 

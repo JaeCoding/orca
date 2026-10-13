@@ -56,10 +56,10 @@ function fold(rows: JournalRow[]): JournalReducerState {
 }
 
 describe('a handover row naming the stopped messages it carries', () => {
-  it('folds into host-only state, and a later handover of the same send replaces it', () => {
+  it('folds into host-only state; a row carrying nothing records nothing', () => {
     const rows = [submission('a', 1), submission('c', 2), handover('c', 3, ['a'])]
     expect(fold(rows).stoppedHistoryCarried.get('c')).toEqual(['a'])
-    expect(fold([...rows, handover('c', 4)]).stoppedHistoryCarried.has('c')).toBe(false)
+    expect(fold([submission('c', 2), handover('c', 3)]).stoppedHistoryCarried.has('c')).toBe(false)
   })
 
   it('drops a malformed list rather than the row', () => {

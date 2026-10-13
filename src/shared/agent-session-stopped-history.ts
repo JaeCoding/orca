@@ -15,7 +15,6 @@ import {
   dispatchWasWithdrawn
 } from './structured-agent-session-dispatch-rejection'
 import { MAX_PROMPT_BYTES } from './rpc-contract/structured-agent-session-message-params'
-import type { StructuredAgentContextUsage } from './structured-agent-session-context-usage'
 
 /** The record Claude writes for its own Stop, carried after each stopped message. */
 export const STOPPED_MESSAGE_INTERRUPTED_MARKER = '[Request interrupted by user]'
@@ -128,53 +127,39 @@ function messageWords(body: AgentJournalMessageItem): string {
 // Per message, the larger transport's framing beyond its words: Codex's two item wrappers and its
 // own interrupted record.
 export const STOPPED_MESSAGE_FRAMING_BYTES = 512
-// One byte per token, pessimistic for any tokenizer. An unknown window is read as 128k tokens, and a
-// quarter of the window (at least 16k) stays free for the agent's own work.
-const UNKNOWN_CONTEXT_WINDOW_TOKENS = 128_000
-const RESERVED_CONTEXT_MIN_TOKENS = 16_000
-const IMAGE_ALLOWANCE_BYTES = 8_192
 
-function encodedBytes(text: string): number {
-  return new TextEncoder().encode(JSON.stringify(text)).length
-}
-
-/** Bytes of stopped history `body`'s send has room for: what the agent's context has left beside
- *  the send's own content, and never more than one send can hold (`MAX_PROMPT_BYTES`). */
-export function stoppedHistoryBudget(
-  context: Pick<StructuredAgentContextUsage, 'usedTokens' | 'windowTokens'> | null,
-  body: AgentJournalMessageItem
-): number {
-  const window = context?.windowTokens ?? UNKNOWN_CONTEXT_WINDOW_TOKENS
-  const images = body.blocks.filter((block) => block.type === 'image-ref').length
-  const own = encodedBytes(messageWords(body)) + images * IMAGE_ALLOWANCE_BYTES
-  const reserved = Math.max(RESERVED_CONTEXT_MIN_TOKENS, Math.ceil(window / 4))
-  return Math.min(MAX_PROMPT_BYTES, window - (context?.usedTokens ?? 0) - own - reserved)
-}
-
-/** One delivery: the owed messages that fit `budget`, newest first, in the order sent. It covers
- *  every owed message, those left out included, so none arrives after a newer one. */
+/** One delivery: the newest owed message, and older ones while the whole stays within what one send
+ *  can hold (`MAX_PROMPT_BYTES`), in the order sent. It covers every owed message, those left out
+ *  included, so none arrives after a newer one. Beside a words-only send it stays far under every
+ *  agent's one-line limit. Not budgeted by the agent's context: had the person not pressed Stop,
+ *  each of these would have reached the agent anyway, in a turn of its own. */
 export type StoppedHistoryDelivery = {
   messages: OwedStoppedMessage[]
   covers: string[]
 }
 
-/** Null when none fits, so they stay owed. */
 export function selectStoppedHistory(
-  owed: readonly OwedStoppedMessage[],
-  budget: number
+  owed: readonly OwedStoppedMessage[]
 ): StoppedHistoryDelivery | null {
-  let room = budget
-  const messages: OwedStoppedMessage[] = []
-  for (const entry of owed.toReversed()) {
-    const cost = encodedBytes(entry.words) + STOPPED_MESSAGE_FRAMING_BYTES
-    if (cost <= room) {
-      room -= cost
-      messages.unshift(entry)
+  const newest = owed.at(-1)
+  if (!newest) {
+    return null
+  }
+  const encoder = new TextEncoder()
+  const cost = (entry: OwedStoppedMessage): number =>
+    encoder.encode(JSON.stringify(entry.words)).length + STOPPED_MESSAGE_FRAMING_BYTES
+  const older: OwedStoppedMessage[] = []
+  let bytes = cost(newest)
+  for (const entry of owed.slice(0, -1).toReversed()) {
+    if (bytes + cost(entry) <= MAX_PROMPT_BYTES) {
+      bytes += cost(entry)
+      older.unshift(entry)
     }
   }
-  return messages.length > 0
-    ? { messages, covers: owed.map((entry) => entry.clientMessageId) }
-    : null
+  return {
+    messages: [...older, newest],
+    covers: owed.map((entry) => entry.clientMessageId)
+  }
 }
 
 /** Whether this send's handover delivers the stopped messages owed: a person's ordinary message, a
