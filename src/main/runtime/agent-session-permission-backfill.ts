@@ -14,6 +14,12 @@ export function backfillAgentSessionPermissionModes(
       if (record.permissionMode !== undefined) {
         continue
       }
+      // Temporary: only the dev team's hourly builds saved the mode among options; remove after 1.4.226 ships.
+      const { permissionMode: saved, ...options } = record.options ?? {}
+      if (saved !== undefined) {
+        draft.records.set(sessionId, { ...record, options, permissionMode: saved })
+        continue
+      }
       const permissionMode = newChatPermissionMode(
         record.provider,
         ranWithFullAccess(record.provider) ? 'full-access' : 'ask'

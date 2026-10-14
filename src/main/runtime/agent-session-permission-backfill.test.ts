@@ -60,20 +60,29 @@ describe('existing chat permission backfill', () => {
   )
 
   it.each(['ask', 'full-access', 'invalid-saved-mode'] as const)(
-    'never replaces saved %s or options on other providers',
+    'never replaces saved %s, even one an earlier build saved among the options',
     async (mode) => {
+      // The codex row is what an hourly build before the field wrote.
+      const earlier = { ...record('codex'), options: { model: 'gpt', permissionMode: mode } }
       await seedTestAgentSessionRecordStore(root, {
         records: [
           record('claude', { permissionMode: mode }),
-          record('codex', { permissionMode: mode }),
+          earlier,
           record('grok', { model: 'grok' })
         ]
       })
       const store = await openTestAgentSessionRecordStore(root)
-      const before = store.listRecords()
+      const [claude, codex, grok] = ['claude', 'codex', 'grok'].map((provider) =>
+        store.getRecord(`session-${provider}`)
+      )
       await store.backfillChatPermissionModes(() => mode !== 'full-access')
-      expect(store.listRecords()).toEqual(before)
-      expect(store.getRecord('session-grok')?.options).toEqual({ model: 'grok' })
+      expect(store.getRecord('session-claude')).toEqual(claude)
+      expect(store.getRecord('session-codex')).toEqual({
+        ...codex,
+        options: { model: 'gpt' },
+        permissionMode: mode
+      })
+      expect(store.getRecord('session-grok')).toEqual(grok)
     }
   )
 
