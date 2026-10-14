@@ -58,6 +58,17 @@ async function startupTerminalOptions(startupPaneKey?: string): Promise<Record<s
 }
 
 describe('a folder workspace create with a startup agent', () => {
+  it('only promises a chat when the caller explicitly plans one', async () => {
+    const { deps } = createDeps()
+    await createRuntimeFolderWorktree({
+      request: { repoSelector: `id:${repo.id}`, name: 'attributed', activate: true },
+      repo,
+      createdWithAgent: 'codex',
+      deps
+    })
+    expect(deps.activate).toHaveBeenCalledWith(repo.id, expect.any(String), undefined, undefined)
+  })
+
   it('seeds a headless activated folder workspace without a paired viewer', async () => {
     const { deps, createTerminal } = createDeps()
     deps.provisionInBackground = () => true

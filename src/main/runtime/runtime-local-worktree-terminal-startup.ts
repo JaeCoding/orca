@@ -66,6 +66,7 @@ export async function startRuntimeLocalWorktreeTerminals(args: {
   /** What a host-built startup was quoted for, or the repair error it fails with. */
   startupLaunchRuntime?: AgentLaunchRuntime | Error
   createdWithAgent?: TuiAgent
+  promisedAgentChat?: boolean
   draftPaste?: WorktreeStartupDraftPaste
   warning?: string
   ports: Ports
@@ -168,7 +169,7 @@ export async function startRuntimeLocalWorktreeTerminals(args: {
         startup && !didSpawnStartup ? startup : undefined,
         failedSetup,
         runtimeWillProvision ? undefined : defaultTabs,
-        ...(args.createdWithAgent !== undefined && !startup ? ([true] as const) : [])
+        ...(args.promisedAgentChat && !startup ? ([true] as const) : [])
       )
     }
   } else if (ports.canSpawn && (setup || defaultTabs || didSpawnStartup)) {
@@ -190,7 +191,8 @@ export async function startRuntimeLocalWorktreeTerminals(args: {
     ports.canSpawn &&
     shouldSeedWorktreePrimaryTerminal({
       hasPrimarySurface: didSpawnStartup,
-      callerProvidesSurface: args.createdWithAgent !== undefined
+      // Preserve background create behavior for attribution-only callers.
+      callerProvidesSurface: args.promisedAgentChat === true || args.createdWithAgent !== undefined
     })
   ) {
     try {
@@ -234,7 +236,7 @@ function provisionArgs(
     ...(args.defaultTabs ? { defaultTabs: args.defaultTabs } : {}),
     primaryTerminalHandle,
     hasStartupTerminal,
-    callerProvidesSurface: args.createdWithAgent !== undefined,
+    callerProvidesSurface: args.promisedAgentChat === true,
     startupNeedsTerminal: args.startup !== undefined,
     setupCommandPlatform: setupPlatform(args.setup, 'posix'),
     observeSetupCompletion: args.request.observeSetupCompletion,

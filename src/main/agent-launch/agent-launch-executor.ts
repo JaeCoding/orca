@@ -170,20 +170,28 @@ export async function executeAgentLaunch(
   execution.onStage?.('surface_create')
   let created: CreatedSurface
   try {
-    created = await createSurface(execution, placed, settled)
-  } catch (error) {
-    // The structured create path distinguishes a definitive pre-commit refusal from an unknown
-    // outcome. Only the former is safe to replace with a terminal in the same workspace; retrying
-    // after an unknown attach outcome could create two agents.
-    if (
-      settled.mode !== 'structured' ||
-      !(error instanceof AgentLaunchStructuredSessionRefusedError) ||
-      !isDefinitiveAgentSessionCreateRefusal(error.code)
-    ) {
-      throw error
+    try {
+      created = await createSurface(execution, placed, settled)
+    } catch (error) {
+      if (
+        settled.mode !== 'structured' ||
+        !(error instanceof AgentLaunchStructuredSessionRefusedError) ||
+        !isDefinitiveAgentSessionCreateRefusal(error.code)
+      ) {
+        throw error
+      }
+      settled = downgradeAgentLaunchModeForStructuredRefusal(settled, vocabulary)
+      created = await createTerminalSurface(execution, placed)
     }
-    settled = downgradeAgentLaunchModeForStructuredRefusal(settled, vocabulary)
-    created = await createTerminalSurface(execution, placed)
+  } catch (error) {
+    if (intent.target.kind !== 'existing') {
+      try {
+        await execution.workspaces?.createRecoveryShell?.(placed.worktreeId)
+      } catch (recoveryError) {
+        console.warn('[agent-launch] Failed to create a recovery shell:', recoveryError)
+      }
+    }
+    throw error
   }
   // Both CAN be set, so neither may be dropped. The create warns precisely when it produced no
   // startup terminal — `didSpawnStartup` stays false when that spawn throws — and that is the same
@@ -265,6 +273,7 @@ async function resolveWorkspace(
     // in there would re-create the agent-first path this executor exists to replace. The launch
     // owns the prompt for the same reason, so it re-supplies its own rather than honouring theirs.
     create: withoutReservedAgentCreateFields(intent.target.create),
+    ...(preflight.mode === 'structured' ? { promisedAgentChat: true } : {}),
     startupAgent: preflight.mode === 'structured' ? undefined : intent.agent,
     ...createLaunchPromptInputs(execution, preflight.mode),
     ...(preflight.mode === 'structured' ? {} : terminalLaunchInputs(intent))

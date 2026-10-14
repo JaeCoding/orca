@@ -98,6 +98,7 @@ export class OrcaRuntimeWithCreateManagedWorktree extends OrcaRuntimeWithGetWork
         startupFollowup: effectiveStartupFollowup,
         startupLaunchRuntime,
         createdWithAgent: effectiveCreatedWithAgent,
+        promisedAgentChat: args.promisedAgentChat,
         draftPaste: effectiveDraftPaste,
         deps: {
           store: this.store,
@@ -213,6 +214,7 @@ export class OrcaRuntimeWithCreateManagedWorktree extends OrcaRuntimeWithGetWork
       startupFollowup: effectiveStartupFollowup,
       startupLaunchRuntime,
       createdWithAgent: effectiveCreatedWithAgent,
+      promisedAgentChat: args.promisedAgentChat,
       draftPaste: effectiveDraftPaste,
       warning,
       ports: {

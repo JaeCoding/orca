@@ -23,6 +23,7 @@ function harness(options: {
   createSupport?: { supported: boolean; reason?: 'agent' | 'remote' | 'wsl' }
   createSupportThrows?: boolean
   structuredCreateError?: Error
+  terminalCreateError?: Error
   deliveredMessageId?: string | null
   terminalPromptDelivered?: boolean
   /** Whether the surface reports that its typed line took the offered prompt. */
@@ -38,6 +39,7 @@ function harness(options: {
     async (args: {
       create: Record<string, unknown>
       startupAgent: string | undefined
+      promisedAgentChat?: boolean
       startupPrompt?: string
     }) => {
       calls.push(`createWorktree(startupAgent=${String(args.startupAgent)})`)
@@ -52,6 +54,9 @@ function harness(options: {
   const createFolderWorkspace = vi.fn(async (_args: { create: Record<string, unknown> }) => {
     calls.push('createFolderWorkspace')
     return { worktreeId: 'folder:fw-new', connectionId: null }
+  })
+  const createRecoveryShell = vi.fn(async (_worktreeId: string) => {
+    calls.push('createRecoveryShell')
   })
   const getStructuredAgentSessionCreateSupport = vi.fn(async () => {
     calls.push('createSupport')
@@ -69,6 +74,9 @@ function harness(options: {
   })
   const createTerminalAgent = vi.fn(async (args: { startupPrompt?: string }) => {
     calls.push('createTerminalAgent')
+    if (options.terminalCreateError) {
+      throw options.terminalCreateError
+    }
     return { handle: 'term_1', ...carried(args.startupPrompt) }
   })
   const deliverStructuredPrompt = vi.fn(async () => {
@@ -88,6 +96,7 @@ function harness(options: {
     calls,
     createWorktree,
     createFolderWorkspace,
+    createRecoveryShell,
     createStructuredSession,
     createTerminalAgent,
     deliverStructuredPrompt,
@@ -104,8 +113,8 @@ function harness(options: {
           deliverTerminalPrompt
         },
         workspaces: options.worktreeOnlyFactory
-          ? { createWorktree }
-          : { createWorktree, createFolderWorkspace },
+          ? { createWorktree, createRecoveryShell }
+          : { createWorktree, createFolderWorkspace, createRecoveryShell },
         ...(options.onSurfacePublished ? { onSurfacePublished: options.onSurfacePublished } : {})
       })
   }
@@ -134,6 +143,9 @@ describe('a structured launch that creates its own worktree', () => {
     })
     expect(result.worktreeId).toBe('wt-new')
     expect(result.receipt.mode).toBe('structured')
+    expect(h.createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ promisedAgentChat: true })
+    )
   })
 
   it('asks the host only after the workspace exists, never before', async () => {
@@ -213,20 +225,41 @@ describe('a structured launch that creates its own worktree', () => {
     })
   })
 
-  it('does not create a duplicate terminal when structured creation is unknown', async () => {
-    const h = harness({
-      structuredCreateError: new AgentLaunchStructuredSessionRefusedError(
-        'agent_session_operation_unknown',
-        'unknown'
-      )
-    })
-
-    await expect(h.run(CREATE_INTENT)).rejects.toThrow('unknown')
-    expect(h.calls).toEqual([
-      'createWorktree(startupAgent=undefined)',
-      'createSupport',
-      'createStructuredSession'
-    ])
+  it.each([
+    [
+      'unknown chat creation',
+      {
+        structuredCreateError: new AgentLaunchStructuredSessionRefusedError(
+          'agent_session_operation_unknown',
+          'unknown'
+        )
+      },
+      0
+    ],
+    [
+      'host downgrade terminal failure',
+      {
+        createSupport: { supported: false, reason: 'wsl' as const },
+        terminalCreateError: new Error('spawn failed')
+      },
+      1
+    ],
+    [
+      'definitive refusal fallback failure',
+      {
+        structuredCreateError: new AgentLaunchStructuredSessionRefusedError(
+          'structured_agent_session_unsupported',
+          'unsupported'
+        ),
+        terminalCreateError: new Error('spawn failed')
+      },
+      1
+    ]
+  ] as const)('leaves a shell after %s', async (_label, options, agentStarts) => {
+    const h = harness(options)
+    await expect(h.run(CREATE_INTENT)).rejects.toThrow()
+    expect(h.createRecoveryShell).toHaveBeenCalledWith('wt-new')
+    expect(h.createTerminalAgent).toHaveBeenCalledTimes(agentStarts)
   })
 
   it('creates a folder workspace, then opens its structured session there', async () => {
@@ -291,6 +324,7 @@ describe('a launch the user did not ask to be structured', () => {
     expect(h.calls).toEqual(['createWorktree(startupAgent=claude)'])
     expect(result.outcome).toEqual({ kind: 'terminal', handle: 'term_agent_first' })
     expect(result.receipt).toMatchObject({ mode: 'terminal', reason: 'user_default' })
+    expect(h.createWorktree.mock.calls[0]?.[0]).not.toHaveProperty('promisedAgentChat')
   })
 })
 

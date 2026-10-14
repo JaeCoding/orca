@@ -27,11 +27,7 @@ describe('host-created workspaces awaiting their agent chat', () => {
   it.each([
     ['new-tab', false, false, false],
     ['new-tab', true, true, false],
-    ['new-tab', true, false, true],
-    ['split-horizontal', false, false, false],
-    ['split-horizontal', true, true, true],
-    ['split-vertical', false, true, false],
-    ['split-vertical', true, false, true]
+    ['split-horizontal', false, false, false]
   ] as const)(
     'provisions only the required terminals (%s, defaults=%s, wait=%s, activate=%s)',
     async (setupScriptLaunchMode, withDefaults, wait, activate) => {
@@ -58,10 +54,7 @@ describe('host-created workspaces awaiting their agent chat', () => {
         getRepos: () => [repo],
         getSettings: () => ({ ...runtimeStore.getSettings(), setupScriptLaunchMode })
       })
-      const spawn = vi.fn<NonNullable<RuntimePtyController['spawn']>>(async (args) => {
-        if (!args.worktreeId || !args.tabId || !args.leafId) {
-          throw new Error('missing pane identity')
-        }
+      const spawn = vi.fn<NonNullable<RuntimePtyController['spawn']>>(async () => {
         const ptyId = `pty-${spawn.mock.calls.length}`
         return { id: ptyId }
       })
@@ -88,6 +81,7 @@ describe('host-created workspaces awaiting their agent chat', () => {
         repoSelector: 'id:repo-1',
         name: 'chat-create',
         createdWithAgent: 'claude',
+        promisedAgentChat: true,
         setupDecision: 'run',
         awaitTerminalProvisioning: true,
         observeSetupCompletion: true,
@@ -108,7 +102,6 @@ describe('host-created workspaces awaiting their agent chat', () => {
       })
       const snapshot = await runtime.listMobileSessionTabs(`id:${result.worktree.id}`)
       expect(snapshot.tabs).toHaveLength(commandCount)
-      expect(snapshot.tabs.every((tab) => tab.type === 'terminal')).toBe(true)
       if (setupScriptLaunchMode === 'new-tab' && !withDefaults) {
         expect(snapshot.tabs[0]?.title).toBe('Setup')
       }

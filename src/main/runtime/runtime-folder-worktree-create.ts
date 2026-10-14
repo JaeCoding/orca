@@ -56,6 +56,7 @@ export async function createRuntimeFolderWorktree(args: {
   /** What a host-built startup was quoted for, or the repair error it fails with. */
   startupLaunchRuntime?: AgentLaunchRuntime | Error
   createdWithAgent?: TuiAgent
+  promisedAgentChat?: boolean
   draftPaste?: WorktreeStartupDraftPaste
   deps: RuntimeFolderWorktreeCreateDeps
 }): Promise<CreateWorktreeResult> {
@@ -180,7 +181,7 @@ export async function createRuntimeFolderWorktree(args: {
       worktree.id,
       undefined,
       args.startup && !didSpawnStartup ? args.startup : undefined,
-      ...(args.createdWithAgent !== undefined && !args.startup ? ([true] as const) : [])
+      ...(args.promisedAgentChat && !args.startup ? ([true] as const) : [])
     )
   }
   if (
@@ -188,7 +189,8 @@ export async function createRuntimeFolderWorktree(args: {
     deps.ptySpawnAvailable &&
     shouldSeedWorktreePrimaryTerminal({
       hasPrimarySurface: didSpawnStartup,
-      callerProvidesSurface: args.createdWithAgent !== undefined
+      // Background attribution-only creates have historically omitted the shell.
+      callerProvidesSurface: args.promisedAgentChat === true || args.createdWithAgent !== undefined
     })
   ) {
     try {
