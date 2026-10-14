@@ -14,10 +14,7 @@ import { getRuntimeTargetHostId, runtimeTargetEnvironmentId } from '@/runtime/ru
 import { NATIVE_CHAT_VISUAL_RESERVED_HEIGHT, NativeChatVisualFrame } from './NativeChatVisualFrame'
 import { observeTranscriptVisibility } from './NativeChatTranscriptChrome'
 import type { NativeChatVisualOwner } from './native-chat-visual-owner'
-import {
-  readNativeChatVisual,
-  type NativeChatVisualIdentity
-} from './native-chat-visual-read-client'
+import { readNativeChatVisual } from './native-chat-visual-read-client'
 import { useNativeChatVisualDocument } from './use-native-chat-visual-document'
 
 export function NativeChatVisualUnavailable(): React.JSX.Element {
@@ -36,20 +33,32 @@ function openNativeChatVisualFile(worktreeId: string, path: string): void {
   }
 }
 
+/** The file's own key on the chat's host, so Share here and on the opened file update one link. */
+function nativeChatVisualShareKey(owner: NativeChatVisualOwner, path: string): string {
+  return fileArtifactSourceKey(
+    {
+      executionHostId: getRuntimeTargetHostId(owner.target),
+      runtimeEnvironmentId: runtimeTargetEnvironmentId(owner.target)
+    },
+    path
+  )
+}
+
 /** Publishes the file as saved now, never the copy on screen; a failed read publishes nothing. */
 async function readNativeChatVisualShareRequest(
-  identity: NativeChatVisualIdentity,
-  sourceKey: string
+  owner: NativeChatVisualOwner,
+  file: string
 ): Promise<ArtifactWriteRequest> {
-  const outcome = await readNativeChatVisual(identity, { fresh: true })
+  const { target, sessionId } = owner
+  const outcome = await readNativeChatVisual({ target, sessionId, file }, { fresh: true })
   if (!outcome.ok) {
     throw new ArtifactPublishPreparationError('visual-unreadable')
   }
   return {
-    sourceKey,
+    sourceKey: nativeChatVisualShareKey(owner, outcome.document.path),
     content: outcome.document.html,
     contentType: 'text/html',
-    fileName: basename(identity.file)
+    fileName: basename(outcome.document.path)
   }
 }
 
@@ -71,8 +80,10 @@ export function NativeChatInlineVisual({
   const [retired, setRetired] = useState(false)
   // Share's popover is portalled, so hover and focus-within can't keep the toolbar shown.
   const [shareOpen, setShareOpen] = useState(false)
-  const identity = { target: owner.target, sessionId: owner.sessionId, file }
-  const state = useNativeChatVisualDocument(identity, near)
+  const state = useNativeChatVisualDocument(
+    { target: owner.target, sessionId: owner.sessionId, file },
+    near
+  )
 
   useEffect(() => {
     const element = boxRef.current
@@ -91,17 +102,6 @@ export function NativeChatInlineVisual({
   }
   const label = title ?? file
   const openLabel = translate('components.native-chat.visualOpenInNewTab', 'Open in new tab')
-  const sharePath = state.status === 'ready' ? state.document.path : null
-  // The file's own key on the chat's host, so Share here and on the opened file update one link.
-  const shareKey =
-    sharePath &&
-    fileArtifactSourceKey(
-      {
-        executionHostId: getRuntimeTargetHostId(owner.target),
-        runtimeEnvironmentId: runtimeTargetEnvironmentId(owner.target)
-      },
-      sharePath
-    )
 
   return (
     <div ref={boxRef} className="group/visual relative my-3">
@@ -132,16 +132,14 @@ export function NativeChatInlineVisual({
                 {openLabel}
               </TooltipContent>
             </Tooltip>
-            {shareKey ? (
-              <ArtifactPublishButton
-                variant="outline"
-                size="icon-xs"
-                sourceKey={shareKey}
-                createRequest={() => readNativeChatVisualShareRequest(identity, shareKey)}
-                open={shareOpen}
-                onOpenChange={setShareOpen}
-              />
-            ) : null}
+            <ArtifactPublishButton
+              variant="outline"
+              size="icon-xs"
+              sourceKey={nativeChatVisualShareKey(owner, state.document.path)}
+              createRequest={() => readNativeChatVisualShareRequest(owner, file)}
+              open={shareOpen}
+              onOpenChange={setShareOpen}
+            />
           </div>
         </>
       ) : (
