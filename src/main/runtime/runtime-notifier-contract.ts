@@ -69,6 +69,7 @@ export type RuntimeNotifier = {
       launchToken?: string
       launchAgent?: TuiAgent
       viewMode?: 'terminal' | 'chat'
+      tabPosition?: 'first'
       activate?: boolean
       presentation?: RuntimeTerminalPresentation
       surfaceOwner?: false

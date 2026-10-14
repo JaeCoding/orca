@@ -22,6 +22,7 @@ export type AgentLaunchSurfaceFactory = {
     /** The caller-reserved tab id (the tab half of `paneKey`), so the host records where this chat
      *  is shown; absent records the id clients derive. */
     tabId?: string
+    tabPosition?: 'first'
   }): Promise<AgentLaunchStructuredSurface>
   createTerminalAgent(args: {
     worktreeId: string
@@ -39,6 +40,7 @@ export type AgentLaunchSurfaceFactory = {
     paneKey?: string
     /** The tab's first view, derived on the host by the window's own rule. */
     viewMode?: 'terminal' | 'chat'
+    tabPosition?: 'first'
   }): Promise<{
     handle: string
     /** The pane this create minted; a factory whose runtime reports none omits it, never invents. */

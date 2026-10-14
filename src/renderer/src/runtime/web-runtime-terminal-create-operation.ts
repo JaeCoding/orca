@@ -12,6 +12,8 @@ import {
 } from './agent-session-create-operation'
 import { runRemoteAgentSessionLaunch } from './remote-agent-session-launch'
 import { unwrapRuntimeRpcResult } from './runtime-rpc-result'
+import { runtimeEnvironmentSupportsCapability } from './runtime-rpc-client'
+import { AGENT_TERMINAL_FIRST_POSITION_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
 import { resolveWebRuntimeSessionEnvironmentId } from './web-runtime-session-workspace-routing'
 import { recordWebSessionFocusIntent } from './web-session-focus-intent'
@@ -27,7 +29,6 @@ import {
   isWebRuntimeSessionActive,
   matchesWebSessionIntentOwner
 } from './web-runtime-session-environment'
-import { refreshWebRuntimeSessionTabsSnapshot } from './web-runtime-session-snapshot'
 import type {
   CreatedAgentTerminalIdentity,
   CreatedWebRuntimeSessionTerminal,
@@ -43,7 +44,7 @@ import {
   createdTerminalLeafId,
   readCreatedAgentTerminalIdentity
 } from './web-runtime-terminal-identity'
-import { settleWebRuntimeTerminalPlacement } from './web-runtime-terminal-placement-settlement'
+import { refreshCreatedWebRuntimeTerminalPlacement } from './web-runtime-created-terminal-placement'
 
 export async function createWebRuntimeSessionTerminalResult(
   args: CreateWebRuntimeSessionTerminalArgs
@@ -89,11 +90,11 @@ export async function createWebRuntimeSessionTerminalResult(
       // Paired panes retain the default keyboard advertisement, including on Windows clients.
       const keyboardProtocol = buildDefaultTerminalOptions().vtExtensions?.kittyKeyboard
       const keyboardOptions = createAgentSessionKeyboardOptions(keyboardProtocol)
+      const mustUseLegacyAgentCreate = args.preparedAgentCommand || args.afterTabId
       let legacyAlreadyPlacedInGroup = false
       // Why: structured creation cannot yet express afterTabId; keep the exact legacy placement contract until it can.
       // Why: focus belongs to the paired client; a headless execution host has no renderer to focus.
       // Why: rebuilding a prepared command through host authority can discard its embedded prompt and delivery flags.
-      const mustUseLegacyAgentCreate = args.preparedAgentCommand || args.afterTabId
       const hostAuthority = mustUseLegacyAgentCreate
         ? undefined
         : args.agentSessionKind === 'resume'
@@ -125,8 +126,17 @@ export async function createWebRuntimeSessionTerminalResult(
                   )
                 )
             : undefined
-          : async () =>
-              await createAgentSessionCreateOperation().run(async (clientOperationId) =>
+          : async () => {
+              const firstPlacementSupported =
+                args.tabPosition === 'first' &&
+                (await runtimeEnvironmentSupportsCapability(
+                  environmentId,
+                  AGENT_TERMINAL_FIRST_POSITION_RUNTIME_CAPABILITY
+                ).catch(() => false))
+              const terminalPlacement = firstPlacementSupported
+                ? { tabPosition: 'first' as const }
+                : {}
+              return await createAgentSessionCreateOperation().run(async (clientOperationId) =>
                 readCreatedAgentTerminalIdentity(
                   unwrapRuntimeRpcResult(
                     await callEnvironment({
@@ -146,6 +156,7 @@ export async function createWebRuntimeSessionTerminalResult(
                             : {}),
                           ...(args.cwd ? { startupCwd: args.cwd } : {}),
                           ...(args.viewMode ? { viewMode: args.viewMode } : {}),
+                          ...terminalPlacement,
                           presentation: 'background'
                         },
                         clientOperationId
@@ -155,6 +166,7 @@ export async function createWebRuntimeSessionTerminalResult(
                   )
                 )
               )
+            }
       const resumeHostAuthorityCapability =
         args.agentSessionKind === 'resume' ? agentResumeHostAuthorityCapability(agent) : undefined
       const created = await runRemoteAgentSessionLaunch<{
@@ -182,6 +194,7 @@ export async function createWebRuntimeSessionTerminalResult(
               ...(args.agent ? { agent: args.agent } : {}),
               ...(args.launchAgent ? { launchAgent: args.launchAgent } : {}),
               ...(args.viewMode ? { viewMode: args.viewMode } : {}),
+              ...(args.tabPosition ? { tabPosition: args.tabPosition } : {}),
               // Why: old hosts understand activate:false; new hosts use select/navigation for caller-local focus.
               activate: false,
               select: args.activate !== false,
@@ -262,28 +275,12 @@ export async function createWebRuntimeSessionTerminalResult(
       // tab to THIS new terminal, instead of sticky-keeping the prior tab.
       recordWebSessionFocusIntent(intentOwner, args.worktreeId, createdTabId, createdLeafId)
     }
-    const placementTabId =
-      createdTabId && (args.targetGroupId || args.afterTabId) ? createdTabId : undefined
-    await refreshWebRuntimeSessionTabsSnapshot(environmentId, args.worktreeId, {
-      expectedEnvironmentPairingRevision: intentOwner.pairingRevision,
-      // Why: the publication can beat the RPC response; replay it once after caller intent exists.
-      acceptCurrentSnapshot:
-        Boolean(createdTabId) && (args.activate !== false || Boolean(placementTabId)),
-      // Why: a placement record needs a post-create list; a deduped in-flight one can predate it.
-      ...(placementTabId ? { afterCurrentInFlight: true } : {})
-    })
-    if (placementTabId) {
-      await settleWebRuntimeTerminalPlacement(
-        environmentId,
-        args.worktreeId,
-        webTerminalPlacementParentTabId(placementTabId),
-        {
-          groupId: args.targetGroupId,
-          afterTabId: args.afterTabId,
-          activate: args.activate !== false
-        }
-      )
-    }
+    await refreshCreatedWebRuntimeTerminalPlacement(
+      environmentId,
+      args,
+      createdTabId,
+      intentOwner.pairingRevision
+    )
     return {
       outcome: { status: 'created' },
       ...(createdTabId ? { hostTabId: createdTabId } : {})

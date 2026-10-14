@@ -79,7 +79,8 @@ export function createTabsCreateActions(
           nextTabs,
           id,
           init?.isPinned === true,
-          placement.anchorTabId
+          placement.anchorTabId,
+          init?.tabPosition
         )
         const insertedIndex = nextOrder.indexOf(id)
         // Why always: preview replacement can leave a gap, so an append alone would reuse a sibling's sortOrder.

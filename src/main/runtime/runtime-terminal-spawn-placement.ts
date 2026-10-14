@@ -12,9 +12,11 @@ export function newTabIn(opts: {
   targetGroupId?: string
   title?: string
   presentation?: RuntimeTerminalPresentation
+  tabPosition?: 'first'
 }): {
   placement: TerminalPanePlacement
   groupId?: string
+  tabIndex?: number
 } {
   const { viewMode, targetGroupId } = opts
   const title = opts.presentation === 'background' ? undefined : opts.title
@@ -24,7 +26,8 @@ export function newTabIn(opts: {
   }
   return {
     placement: viewMode || title ? { kind: 'new-tab', row } : { kind: 'new-tab' },
-    ...(targetGroupId ? { groupId: targetGroupId } : {})
+    ...(targetGroupId ? { groupId: targetGroupId } : {}),
+    ...(opts.tabPosition === 'first' ? { tabIndex: 0 } : {})
   }
 }
 

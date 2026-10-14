@@ -62,3 +62,12 @@ export function terminalRevealViewerOptions(
     ...(opts.agentLaunchViewer ? { agentLaunchViewer: opts.agentLaunchViewer() } : {})
   }
 }
+
+export function terminalTabCreationPlacement(
+  opts: Pick<TerminalCreateOptions, 'viewMode' | 'tabPosition'>
+) {
+  return {
+    ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
+    ...(opts.tabPosition ? { tabPosition: opts.tabPosition } : {})
+  }
+}

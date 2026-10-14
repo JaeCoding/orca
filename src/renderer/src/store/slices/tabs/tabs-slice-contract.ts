@@ -37,6 +37,7 @@ export type TabsSlice = {
         targetGroupId: string
         /** Client-local unified tab id to insert after; an explicit targetGroupId still wins. */
         afterTabId: string
+        tabPosition: 'first'
         activate: boolean
         /** false selects an activated tab without stamping its focus time (the group history still updates). */
         recordFocus: boolean

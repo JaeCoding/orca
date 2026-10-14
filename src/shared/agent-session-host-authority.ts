@@ -137,6 +137,7 @@ export type RuntimeCreateAgentSessionRequest = {
   presentation?: RuntimeTerminalPresentation
   placement?: { tabId?: string; leafId?: string }
   viewMode?: 'terminal' | 'chat'
+  tabPosition?: 'first'
 }
 
 export type RuntimeCreateAgentSessionResult = {

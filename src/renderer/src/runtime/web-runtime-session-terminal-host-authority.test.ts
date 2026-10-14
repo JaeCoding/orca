@@ -1,3 +1,4 @@
+import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as TrackingDecisions from './web-session-tabs-sync/tracking-decisions'
 import {
@@ -280,7 +281,7 @@ describe('createWebRuntimeSessionTerminal', () => {
     }
   )
 
-  it('creates paired web agents through host authority so activation is mirrored', async () => {
+  it.each([false, true])('negotiates paired first placement (%s)', async (firstSupported) => {
     const snapshot = {
       ...makeSnapshot(),
       snapshotVersion: 2,
@@ -299,45 +300,61 @@ describe('createWebRuntimeSessionTerminal', () => {
         }
       ]
     }
-    const runtimeCall = vi
-      .fn()
-      .mockResolvedValueOnce({
-        id: 'status',
-        ok: true,
-        result: {
-          runtimeId: 'runtime-1',
-          graphStatus: 'ready',
-          runtimeProtocolVersion: 3,
-          minCompatibleRuntimeClientVersion: 2,
-          capabilities: ['agent-session.host-authority.v1']
+    const replies = new Map<string, RuntimeRpcResponse<unknown>>([
+      [
+        'status.get',
+        {
+          id: 'status',
+          ok: true,
+          _meta: { runtimeId: 'runtime-1' },
+          result: {
+            runtimeId: 'runtime-1',
+            graphStatus: 'ready',
+            runtimeProtocolVersion: 3,
+            minCompatibleRuntimeClientVersion: 2,
+            capabilities: [
+              'agent-session.host-authority.v1',
+              ...(firstSupported ? ['terminal.agent-first-position.v1'] : [])
+            ]
+          }
         }
-      })
-      .mockResolvedValueOnce({
-        id: 'create-terminal',
-        ok: true,
-        result: {
-          terminal: {
-            id: 'pty-2',
-            handle: 'term_2',
-            title: 'Terminal 2',
-            cwd: '/repo/packages/app',
-            worktreeId: WORKTREE_ID,
-            tabId: 'host-tab-2',
-            paneKey: `host-tab-2:${FOCUS_LEAF_ID}`
-          },
-          disposition: 'created'
+      ],
+      [
+        'terminal.createAgentSession',
+        {
+          id: 'create-terminal',
+          ok: true,
+          _meta: { runtimeId: 'runtime-1' },
+          result: {
+            terminal: {
+              id: 'pty-2',
+              handle: 'term_2',
+              title: 'Terminal 2',
+              cwd: '/repo/packages/app',
+              worktreeId: WORKTREE_ID,
+              tabId: 'host-tab-2',
+              paneKey: `host-tab-2:${FOCUS_LEAF_ID}`
+            },
+            disposition: 'created'
+          }
         }
-      })
-      .mockResolvedValueOnce({
-        id: 'move',
-        ok: true,
-        result: { moved: true }
-      })
-      .mockResolvedValueOnce({
-        id: 'list',
-        ok: true,
-        result: snapshot
-      })
+      ],
+      [
+        'session.tabs.move',
+        { id: 'move', ok: true, _meta: { runtimeId: 'runtime-1' }, result: { moved: true } }
+      ],
+      [
+        'session.tabs.list',
+        { id: 'list', ok: true, _meta: { runtimeId: 'runtime-1' }, result: snapshot }
+      ]
+    ])
+    const runtimeCall = vi.fn(async (request: { method: string }) => {
+      const reply = replies.get(request.method)
+      if (!reply) {
+        throw new Error(`unexpected method ${request.method}`)
+      }
+      return reply
+    })
 
     stubRuntimeEnvironmentBridge({ call: runtimeCall })
 
@@ -360,11 +377,12 @@ describe('createWebRuntimeSessionTerminal', () => {
         agentArgs: '--model gpt-5 --profile captured',
         launchPreferences: { model: 'gpt-5', effort: 'high' },
         viewMode: 'chat',
+        tabPosition: 'first',
         activate: true
       })
     ).resolves.toEqual({ status: 'created' })
 
-    expect(runtimeCall).toHaveBeenNthCalledWith(2, {
+    expect(runtimeCall).toHaveBeenCalledWith({
       selector: ENVIRONMENT_ID,
       expectedEnvironmentPairingRevision: undefined,
       method: 'terminal.createAgentSession',
@@ -378,11 +396,12 @@ describe('createWebRuntimeSessionTerminal', () => {
         launchPreferences: { model: 'gpt-5', effort: 'high' },
         startupCwd: '/repo/packages/app',
         viewMode: 'chat',
-        presentation: 'background'
+        presentation: 'background',
+        ...(firstSupported ? { tabPosition: 'first' } : {})
       },
       timeoutMs: 15_000
     })
-    expect(runtimeCall).toHaveBeenNthCalledWith(3, {
+    expect(runtimeCall).toHaveBeenCalledWith({
       selector: ENVIRONMENT_ID,
       method: 'session.tabs.move',
       params: {
@@ -393,7 +412,7 @@ describe('createWebRuntimeSessionTerminal', () => {
       },
       timeoutMs: 15_000
     })
-    expect(runtimeCall).toHaveBeenNthCalledWith(4, {
+    expect(runtimeCall).toHaveBeenCalledWith({
       selector: ENVIRONMENT_ID,
       method: 'session.tabs.list',
       params: {

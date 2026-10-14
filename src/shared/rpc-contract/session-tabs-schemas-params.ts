@@ -169,6 +169,7 @@ export const CreateTerminalTab = WorktreeTabSelector.extend({
     })
     .optional(),
   viewMode: z.enum(['terminal', 'chat']).optional(),
+  tabPosition: z.literal('first').optional(),
   activate: z.boolean().optional(),
   select: z.boolean().optional(),
   navigation: z.enum(RUNTIME_NAVIGATION_TARGETS).optional(),

@@ -43,6 +43,7 @@ function openBackgroundDeclinedTerminal(
     ensureWebRuntimeWorktreeTerminalAfterWake(args.worktreeId, {
       startup,
       agent: args.request.agent,
+      tabPosition: 'first',
       activate: false
     })
     return { opened: true }
@@ -58,7 +59,7 @@ function openBackgroundDeclinedTerminal(
     undefined,
     undefined,
     undefined,
-    { activateCreatedTabs: false, createNewTerminalForStartup: true }
+    { activateCreatedTabs: false, createNewTerminalForStartup: true, tabPosition: 'first' }
   )
   mountCreatedWorktreeStartupTabsInBackground(args.worktreeId)
   return { opened: tabId !== null }
@@ -102,6 +103,8 @@ export async function launchStructuredWorktreeSession(
       plan,
       hooks: { signal: abandoned.signal },
       target: { worktreeId: args.worktreeId },
+      tabPosition: 'first',
+      declinedTerminal: { tabPosition: 'first' },
       activate: args.shouldActivateOnCompletion,
       ...(args.shouldActivateOnCompletion
         ? {}

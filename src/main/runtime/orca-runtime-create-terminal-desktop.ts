@@ -70,7 +70,7 @@ export async function createDesktopTerminal(
         : {}),
       ...(launchOpts.launchToken ? { launchToken: launchOpts.launchToken } : {}),
       ...(launchOpts.launchAgent ? { launchAgent: launchOpts.launchAgent } : {}),
-      ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
+      ...dependencies.terminalTabCreationPlacement(launchOpts),
       startupCommandDelivery: launchOpts.startupCommandDelivery,
       ...(launchOpts.shellOverride ? { shellOverride: launchOpts.shellOverride } : {}),
       title: launchOpts.title,

@@ -34,6 +34,7 @@ export type HostAgentLaunchArgs = {
   worktreeId: string
   /** The split the launch was made from; the tab joins it. */
   groupId?: string
+  tabPosition?: 'first'
   /** Kept by the window: a pane whose agent could not start offers to copy it. */
   prompt: string
   /** Absent uses the settings default; `null` means no arguments. */
@@ -159,6 +160,7 @@ export function launchAgentThroughHost(args: HostAgentLaunchArgs): {
     paneKey: makePaneKey(tabId, leafId)
   })
   store.createTab(args.worktreeId, args.groupId, undefined, {
+    ...(args.tabPosition ? { tabPosition: args.tabPosition } : {}),
     id: tabId,
     initialLeafId: leafId,
     agentLaunchPane: { leafId },

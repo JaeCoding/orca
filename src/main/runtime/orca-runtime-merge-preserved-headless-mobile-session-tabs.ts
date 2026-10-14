@@ -1,5 +1,6 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { OrcaRuntimeWithSyncMobileSessionTabs } from './orca-runtime-sync-mobile-session-tabs'
+import { insertTabIdAtPreviousPosition } from '../../shared/workspace-layout/tab-order'
 import type {
   RuntimeMobileSessionSnapshotTab,
   RuntimeMobileSessionTabGroup,
@@ -88,10 +89,14 @@ export class OrcaRuntimeWithMergePreservedHeadlessMobileSessionTabs extends Orca
     }
     const next = groups.map((group) => ({ ...group, tabOrder: [...group.tabOrder] }))
     for (const tab of structuredTabs) {
-      const priorGroupId = existingGroups.find((group) => group.tabOrder.includes(tab.id))?.id
-      const target = next.find((group) => group.id === priorGroupId) ?? next[0]
+      const priorGroup = existingGroups.find((group) => group.tabOrder.includes(tab.id))
+      const target = next.find((group) => group.id === priorGroup?.id) ?? next[0]
       if (target && !target.tabOrder.includes(tab.id)) {
-        target.tabOrder.push(tab.id)
+        target.tabOrder = insertTabIdAtPreviousPosition(
+          target.tabOrder,
+          priorGroup?.tabOrder ?? [],
+          tab.id
+        )
       }
       if (target && tab.id === activeTabId) {
         target.activeTabId = tab.id

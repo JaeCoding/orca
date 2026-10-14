@@ -167,6 +167,7 @@ export type UiCommandEventApi = {
       launchToken?: string
       launchAgent?: TuiAgent
       viewMode?: 'terminal' | 'chat'
+      tabPosition?: 'first'
       title?: string
       ptyId?: string
       activate?: boolean

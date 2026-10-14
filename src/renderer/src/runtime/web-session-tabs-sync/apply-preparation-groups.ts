@@ -44,7 +44,7 @@ export function prepareWebSessionTabsSnapshotGroups(
     )
   )
   // Why: once this worktree has client groups, placement is client-owned — snapshots may only
-  // append never-seen tabs, drop vanished ones, and honor explicit focus intent. Host order,
+  // place never-seen tabs, drop vanished ones, and honor explicit focus intent. Host order,
   // host actives, and host layout apply only on first adoption (no client groups yet).
   const clientOwnedPlacement = (() => {
     // Why: a preserveLocalLayout owner keeps the local layout authoritative, so placement
@@ -102,11 +102,24 @@ export function prepareWebSessionTabsSnapshotGroups(
         })
       }
     }
+    const firstTabIds = new Set(
+      snapshot.tabs.flatMap((tab) => {
+        if (
+          (tab.type !== 'agent-session' && tab.type !== 'terminal') ||
+          tab.initialTabPosition !== 'first'
+        ) {
+          return []
+        }
+        const id = hostToLocalTabId.get(tab.type === 'terminal' ? tab.parentTabId : tab.id)
+        return id ? [id] : []
+      })
+    )
     const adoptedTabs = mirroredUnifiedTabs
       .filter((tab) => !knownGroupTabIds.has(tab.id))
       .map((tab) => ({
         tabId: tab.id,
-        groupId: clientGroupIdByLocalTabId.get(tab.id) ?? tab.groupId
+        groupId: clientGroupIdByLocalTabId.get(tab.id) ?? tab.groupId,
+        ...(firstTabIds.has(tab.id) ? { tabPosition: 'first' as const } : {})
       }))
     return reconcileClientOwnedTabPlacement({
       currentGroups,

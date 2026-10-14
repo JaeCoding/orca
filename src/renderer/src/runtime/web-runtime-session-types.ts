@@ -19,6 +19,7 @@ export type CreateWebRuntimeSessionTerminalArgs = {
   environmentId?: string | null
   afterTabId?: string
   targetGroupId?: string
+  tabPosition?: 'first'
   command?: string
   cwd?: string
   env?: Record<string, string>

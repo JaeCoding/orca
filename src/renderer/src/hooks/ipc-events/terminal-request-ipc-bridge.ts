@@ -54,6 +54,7 @@ export function registerTerminalRequestIpcBridge(unsubs: (() => void)[]): void {
               ...(shouldActivate ? {} : { activate: false, recordInteraction: false }),
               launchAgent: data.launchAgent,
               ...(data.viewMode ? { viewMode: data.viewMode } : {}),
+              ...(data.tabPosition ? { tabPosition: data.tabPosition } : {}),
               ...(data.cwd ? { startupCwd: data.cwd } : {})
             }
           : shouldActivate

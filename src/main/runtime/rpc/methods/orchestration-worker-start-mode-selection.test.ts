@@ -19,14 +19,17 @@ const createStructuredWorkerSessionForWorktree = vi.fn(
     return { identity: { handle: STRUCTURED_HANDLE, sessionId: STRUCTURED_SESSION_ID }, host: {} }
   }
 )
-const createExistingWorktreeWorkerTerminal = vi.fn(async () => ({ handle: TERMINAL_HANDLE }))
+const createExistingWorktreeWorkerTerminal = vi.fn(async (_args: unknown) => ({
+  handle: TERMINAL_HANDLE
+}))
 const sendStructuredWorkerPreamble = vi.fn(async (_args: { preamble: string }) => 'accepted')
 
 vi.mock('./orchestration/worker/worker-topology', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   createStructuredWorkerSessionForWorktree: (args: never) =>
     createStructuredWorkerSessionForWorktree(args),
-  createExistingWorktreeWorkerTerminal: () => createExistingWorktreeWorkerTerminal()
+  createExistingWorktreeWorkerTerminal: (args: unknown) =>
+    createExistingWorktreeWorkerTerminal(args)
 }))
 vi.mock('./orchestration/federation/federated-worker-start', () => ({
   startFederatedWorker: async () => ({ state: 'ready', dispatchId: 'ctx_remote' })
@@ -239,6 +242,9 @@ describe('worker-start honours the settings default', () => {
       expect.not.objectContaining({ startupAgent: expect.anything() })
     )
     expect(createStructuredWorkerSessionForWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ tabPosition: 'first' })
+    )
+    expect(createStructuredWorkerSessionForWorktree).toHaveBeenCalledWith(
       expect.objectContaining({ worktreeId: 'repo::child' })
     )
     expect(createExistingWorktreeWorkerTerminal).not.toHaveBeenCalled()
@@ -277,6 +283,9 @@ describe('worker-start honours the settings default', () => {
     })
     expect(createExistingWorktreeWorkerTerminal).toHaveBeenCalledTimes(1)
     expect(createStructuredWorkerSessionForWorktree).not.toHaveBeenCalled()
+    expect(createExistingWorktreeWorkerTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({ tabPosition: 'first' })
+    )
   })
 
   it('tells a remote dispatch why its structured default did not apply', async () => {

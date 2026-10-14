@@ -28,6 +28,7 @@
  */
 
 import { assertOpenCodeModelLaunchPreferencesAbsent } from '../opencode/opencode-model-startup-plan'
+import { terminalLaunchInputs } from './agent-launch-terminal-inputs'
 import { parsePaneKey } from '../../shared/stable-pane-id'
 import type {
   AgentLaunchIntent,
@@ -295,6 +296,7 @@ async function createSurface(
     const session = await surfaces.createStructuredSession({
       worktreeId: workspace.worktreeId,
       agent: intent.agent,
+      ...(intent.target.kind === 'create-worktree' ? { tabPosition: 'first' as const } : {}),
       ...(intent.sessionOptions ? { options: intent.sessionOptions } : {}),
       ...(intent.sessionId ? { sessionId: intent.sessionId } : {}),
       ...(reservedTabId ? { tabId: reservedTabId } : {})
@@ -327,19 +329,6 @@ function ignoredStructuredAgentArgsWarning(
       }
 }
 
-/** What every route that builds a terminal agent passes on, so the startup terminal of a new
- *  workspace and the terminal of an existing one start the same agent. */
-function terminalLaunchInputs(intent: AgentLaunchIntent) {
-  return {
-    ...(intent.sessionOptions ? { options: intent.sessionOptions } : {}),
-    // `null` is a value the caller meant, so this tests for absence rather than falsiness.
-    ...(intent.agentArgs !== undefined ? { agentArgs: intent.agentArgs } : {}),
-    ...(intent.cwd ? { cwd: intent.cwd } : {}),
-    ...(intent.launchSource ? { launchSource: intent.launchSource } : {}),
-    ...(intent.paneKey ? { paneKey: intent.paneKey } : {})
-  }
-}
-
 /**
  * The one place a terminal agent is created, so the structured-refusal downgrade builds the same
  * surface — carrying the same argv prompt — as a launch that chose a terminal outright.
@@ -355,7 +344,8 @@ async function createTerminalSurface(
     agent: intent.agent,
     ...(startupPrompt ? { startupPrompt } : {}),
     ...terminalLaunchInputs(intent),
-    viewMode: 'terminal'
+    viewMode: 'terminal',
+    ...(intent.target.kind === 'create-worktree' ? { tabPosition: 'first' as const } : {})
   })
   return {
     outcome: {

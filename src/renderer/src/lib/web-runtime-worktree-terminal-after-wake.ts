@@ -21,6 +21,7 @@ export function ensureWebRuntimeWorktreeTerminalAfterWake(
     startup?: WorktreeStartupPayload
     agent?: TuiAgent | null
     activate?: boolean
+    tabPosition?: 'first'
   }
 ): void {
   const state = useAppStore.getState()
@@ -104,7 +105,8 @@ export function ensureWebRuntimeWorktreeTerminalAfterWake(
         ? { agent: launchAgent }
         : {}),
     activate: opts?.activate !== false,
-    selectWorktree: false
+    selectWorktree: false,
+    ...(opts?.tabPosition ? { tabPosition: opts.tabPosition } : {})
   })
     .then((outcome) => {
       if (outcome.status === 'failed') {

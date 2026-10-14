@@ -1,5 +1,6 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { OrcaRuntimeWithPersistHeadlessSessionTabProps } from './orca-runtime-persist-headless-session-tab-props'
+import { applyTabOrderSortValues } from '../../shared/workspace-layout/tab-order'
 import type {
   RuntimeMobileSessionTabGroup,
   RuntimeMobileSessionTabMove,
@@ -13,6 +14,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import { withSelectedTabs } from './headless-tab-group-selection'
 import type { TabGroupLayoutNode } from '../../shared/tab-types'
+import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 
 export class OrcaRuntimeWithMoveHeadlessMobileSessionTab extends OrcaRuntimeWithPersistHeadlessSessionTabProps {
   protected moveHeadlessMobileSessionTab(
@@ -169,9 +171,9 @@ export class OrcaRuntimeWithMoveHeadlessMobileSessionTab extends OrcaRuntimeWith
   protected persistHeadlessTabGroups(
     worktreeId: string,
     groups: readonly RuntimeMobileSessionTabGroup[],
-    layout: TabGroupLayoutNode | undefined
+    layout: TabGroupLayoutNode | undefined,
+    session: WorkspaceSessionState | null = this.getWorkspaceSessionForWorktree(worktreeId)
   ): void {
-    const session = this.getWorkspaceSessionForWorktree(worktreeId)
     if (!session || !this.store?.setWorkspaceSession) {
       return
     }
@@ -186,10 +188,13 @@ export class OrcaRuntimeWithMoveHeadlessMobileSessionTab extends OrcaRuntimeWith
         ? {
             unifiedTabs: {
               ...session.unifiedTabs,
-              [worktreeId]: entries.map((entry) => ({
-                ...entry,
-                groupId: groupIdByTabId.get(entry.id) ?? entry.groupId
-              }))
+              [worktreeId]: applyTabOrderSortValues(
+                entries.map((entry) => ({
+                  ...entry,
+                  groupId: groupIdByTabId.get(entry.id) ?? entry.groupId
+                })),
+                groups.flatMap((group) => group.tabOrder)
+              )
             }
           }
         : {}),

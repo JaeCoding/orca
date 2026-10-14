@@ -55,7 +55,8 @@ describe('a provisional structured chat tab', () => {
     const launch = beginStructuredAgentSessionProvisionalLaunch({
       plan: planSettlingAs({ kind: 'structured', sessionId: 'claude_1' }),
       hooks: {},
-      targetGroupId: 'group-2'
+      targetGroupId: 'group-2',
+      tabPosition: 'first'
     })
 
     expect(launch?.tab).toBeNull()
@@ -65,7 +66,11 @@ describe('a provisional structured chat tab', () => {
     expect(mocks.createUnifiedTab).toHaveBeenCalledWith(
       'wt-1',
       'agent-session',
-      expect.objectContaining({ executionHostId: 'local', targetGroupId: 'group-2' })
+      expect.objectContaining({
+        executionHostId: 'local',
+        targetGroupId: 'group-2',
+        tabPosition: 'first'
+      })
     )
   })
 })

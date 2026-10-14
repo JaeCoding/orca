@@ -33,6 +33,7 @@ export function registerTerminalPresentationIpcBridge(unsubs: (() => void)[]): v
         launchToken,
         launchAgent,
         viewMode,
+        tabPosition,
         title,
         ptyId,
         activate,
@@ -103,6 +104,7 @@ export function registerTerminalPresentationIpcBridge(unsubs: (() => void)[]): v
             (ptyId
               ? store.createTab(worktreeId, undefined, undefined, {
                   initialPtyId: ptyId,
+                  ...(tabPosition ? { tabPosition } : {}),
                   activate:
                     shouldActivate ||
                     agentLaunchViewer === 'focus-window' ||

@@ -1,4 +1,5 @@
 import type { TabGroup, TabGroupLayoutNode } from '../../../shared/tab-types'
+import { insertTabIdIntoOrder } from '../../../shared/workspace-layout/tab-order'
 import {
   pickNextActiveTab,
   pushRecentTabId,
@@ -9,6 +10,7 @@ import {
 export type ClientOwnedAdoptedTab = {
   tabId: string
   groupId: string
+  tabPosition?: 'first'
 }
 
 export type ClientOwnedPlacementInput = {
@@ -85,8 +87,8 @@ type WorkingGroup = {
 }
 
 /**
- * Reconcile a snapshot into client-owned group state: place never-seen tabs at
- * the end of their target group, honor the client's own pending placement
+ * Reconcile a snapshot into client-owned group state: place never-seen tabs in
+ * their target group, honor the client's own pending placement
  * records (which may move a tab placed provisionally before the create RPC
  * answered), drop vanished tabs (repairing a group's active tab exactly like a
  * local close), and change focus only on explicit navigation intent. The host
@@ -184,7 +186,14 @@ export function reconcileClientOwnedTabPlacement(
     }
     const target = ensureGroup(targetGroupId)
     if (!target.tabOrder.includes(adopted.tabId)) {
-      target.tabOrder.push(adopted.tabId)
+      target.tabOrder = insertTabIdIntoOrder(
+        target.tabOrder,
+        [],
+        adopted.tabId,
+        false,
+        undefined,
+        adopted.tabPosition
+      )
     }
   }
 

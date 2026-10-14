@@ -7,6 +7,22 @@ import {
   collectHeadlessParentTabOrder,
   getHeadlessMobileSessionGroupId
 } from './mobile-session-layout-projection'
+import { insertTabIdIntoOrder } from '../../shared/workspace-layout/tab-order'
+
+export function placeSessionTabFirst(
+  groups: readonly RuntimeMobileSessionTabGroup[],
+  tabs: readonly RuntimeMobileSessionSnapshotTab[],
+  tabId: string
+): RuntimeMobileSessionTabGroup[] {
+  return groups.map((group) =>
+    group.tabOrder.includes(tabId)
+      ? {
+          ...group,
+          tabOrder: insertTabIdIntoOrder(group.tabOrder, tabs, tabId, false, undefined, 'first')
+        }
+      : group
+  )
+}
 
 export function mergeMobileSessionSnapshotTabs(
   baseTabs: readonly RuntimeMobileSessionSnapshotTab[],

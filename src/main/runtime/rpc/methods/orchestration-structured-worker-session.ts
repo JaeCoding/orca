@@ -82,6 +82,7 @@ export async function createStructuredWorkerSession(args: {
   worktreeId: string
   agent: TuiAgent
   dispatchId: string
+  tabPosition?: 'first'
   /** The dispatch's own `--model`/`--effort`, already narrowed to the seedable string subset. */
   options?: Readonly<Record<string, string>>
   /** Retried whenever the session's journal moves, which is the structured idle edge. */
@@ -129,6 +130,7 @@ export async function createStructuredWorkerSession(args: {
       },
       worktree: `id:${args.worktreeId}`,
       agent: args.agent,
+      ...(args.tabPosition ? { tabPosition: args.tabPosition } : {}),
       // Absent, the host seeds the user's saved selection — the same fallback a chat gets.
       ...(args.options ? { options: args.options } : {}),
       // Dispatching a worker is background work; it must not pull the surface away from the user.

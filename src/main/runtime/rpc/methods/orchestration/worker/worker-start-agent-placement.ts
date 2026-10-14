@@ -184,7 +184,7 @@ function workerSurfaceFactory(
     })
   }
   return {
-    createStructuredSession: async ({ worktreeId }) => {
+    createStructuredSession: async ({ worktreeId, tabPosition }) => {
       recordSurfaceStage(worktreeId)
       const session = await createStructuredWorkerSessionForWorktree({
         runtime: args.runtime,
@@ -192,7 +192,8 @@ function workerSurfaceFactory(
         agent,
         dispatchId: args.dispatchId,
         ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
-        effects: args.effects
+        effects: args.effects,
+        ...(tabPosition ? { tabPosition } : {})
       })
       onStructuredSession(session)
       return {
@@ -201,7 +202,7 @@ function workerSurfaceFactory(
         fence: session.fence
       }
     },
-    createTerminalAgent: async ({ worktreeId }) => {
+    createTerminalAgent: async ({ worktreeId, tabPosition }) => {
       recordSurfaceStage(worktreeId)
       const terminal = await createExistingWorktreeWorkerTerminal({
         runtime: args.runtime,
@@ -209,7 +210,8 @@ function workerSurfaceFactory(
         agent,
         ...(args.launchPreferences ? { launchPreferences: args.launchPreferences } : {}),
         taskId: args.taskId,
-        effects: args.effects
+        effects: args.effects,
+        ...(tabPosition ? { tabPosition } : {})
       })
       return { handle: terminal.handle, ...(terminal.warning ? { warning: terminal.warning } : {}) }
     }

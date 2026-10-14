@@ -60,6 +60,7 @@ export class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithGetAgentSe
           request.placement?.tabId ?? null,
           request.placement?.leafId ?? null,
           request.viewMode ?? null,
+          ...(request.tabPosition ? [request.tabPosition] : []),
           ...(request.terminalKittyKeyboardProtocol === true ? ['kitty-keyboard'] : [])
         ])
       )
@@ -122,6 +123,7 @@ export class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithGetAgentSe
             request.placement?.tabId ?? null,
             request.placement?.leafId ?? null,
             request.viewMode ?? null,
+            ...(request.tabPosition ? [request.tabPosition] : []),
             ...(request.terminalKittyKeyboardProtocol === true ? ['kitty-keyboard'] : [])
           ])
         )
@@ -190,6 +192,7 @@ export class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithGetAgentSe
           leafId: operationLeafId,
           preAllocatedHandle: operationHandle,
           viewMode: request.viewMode,
+          ...(request.tabPosition ? { tabPosition: request.tabPosition } : {}),
           agentSessionCreateOperationId: executionOperationId,
           signal: caller.signal,
           onPtySpawnCommitted: () => {

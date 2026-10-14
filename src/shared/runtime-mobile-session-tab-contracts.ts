@@ -7,6 +7,8 @@ import type { TuiAgent } from './tui-agent'
 import type { StructuredAgentId } from './agent-session-provider-handle'
 
 export type RuntimeMobileSessionTerminalTab = {
+  /** Creation placement, applied only when a client first adopts the tab. */
+  initialTabPosition?: 'first'
   type: 'terminal'
   id: string
   title: string
@@ -93,6 +95,8 @@ export type RuntimeMobileSessionBrowserTab = {
 }
 
 export type RuntimeMobileSessionAgentTab = {
+  /** Creation placement, applied only when a client first adopts the tab. */
+  initialTabPosition?: 'first'
   type: 'agent-session'
   id: string
   title: string

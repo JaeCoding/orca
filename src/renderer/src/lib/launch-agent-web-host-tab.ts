@@ -37,6 +37,7 @@ export function launchAgentInWebHostTab(args: {
   worktreeId: string
   environmentId: string | null
   groupId?: string
+  tabPosition?: 'first'
   cwd?: string | null
   startupPlan: AgentStartupPlan
   prompt: string
@@ -71,6 +72,7 @@ export function launchAgentInWebHostTab(args: {
     worktreeId,
     environmentId,
     targetGroupId: groupId,
+    ...(args.tabPosition ? { tabPosition: args.tabPosition } : {}),
     activate: true,
     ...(cwd?.trim() ? { cwd } : {}),
     ...(viewMode ? { viewMode } : {}),

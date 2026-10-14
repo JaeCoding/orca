@@ -63,7 +63,8 @@ export function agentLaunchSurfaceFactory(
       agent,
       options,
       sessionId: requested,
-      tabId
+      tabId,
+      tabPosition
     }) => {
       const sessionId = requested ?? createStructuredAgentSessionId(agent, randomUUID)
       const seeded = narrowStructuredLaunchSeedOptions(options)
@@ -90,6 +91,7 @@ export function agentLaunchSurfaceFactory(
         agent,
         ...(seeded ? { options: seeded } : {}),
         ...(tabId ? { tabId } : {}),
+        ...(tabPosition ? { tabPosition } : {}),
         activate:
           !callerPresentsSurface &&
           (presentation === undefined || (presentation === 'focused' && movesHostWindow))
@@ -131,7 +133,8 @@ export function agentLaunchSurfaceFactory(
       launchSource,
       paneKey,
       options,
-      viewMode
+      viewMode,
+      tabPosition
     }) => {
       const launchPreferences = toAgentLaunchPreferences(options)
       let promptRodeLaunchCommand = false
@@ -162,6 +165,7 @@ export function agentLaunchSurfaceFactory(
         ...(paneKey ? { ...paneIdentity(paneKey), requireFreshPane: true } : {}),
         ...(launchSource ? { launchSource } : {}),
         ...(viewMode ? { viewMode } : {}),
+        ...(tabPosition ? { tabPosition } : {}),
         ...(presentation && (!movesHostWindow || !hasEarlyTab || presentation === 'background')
           ? { presentation: movesHostWindow ? presentation : ('background' as const) }
           : {}),

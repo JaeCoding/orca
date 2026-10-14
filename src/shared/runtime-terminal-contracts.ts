@@ -239,6 +239,7 @@ type RuntimeTerminalCreateBaseRequestPayload = {
   launchToken?: string
   launchAgent?: TuiAgent
   viewMode?: 'terminal' | 'chat'
+  tabPosition?: 'first'
   startupCommandDelivery?: StartupCommandDelivery
   title?: string
   activate?: boolean

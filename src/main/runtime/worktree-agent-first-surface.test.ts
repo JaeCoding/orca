@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { getDefaultWorkspaceSession } from '../../shared/constants'
 import type { RuntimePtyController } from './runtime-pty-controller-contract'
+import type { RuntimeMobileSessionTabsResult } from '../../shared/runtime-types'
 
 const {
   OrcaRuntimeService,
@@ -23,6 +24,18 @@ const DEFAULTS = {
   ]
 }
 
+function orderedTabs(snapshot: RuntimeMobileSessionTabsResult) {
+  return (
+    snapshot.tabGroups?.flatMap((group) =>
+      group.tabOrder.map((id) =>
+        snapshot.tabs.find(
+          (tab) => tab.id === id || (tab.type === 'terminal' && tab.parentTabId === id)
+        )
+      )
+    ) ?? []
+  )
+}
+
 describe('host-created workspaces awaiting their agent chat', () => {
   it.each([
     ['new-tab', false, false, false],
@@ -31,10 +44,17 @@ describe('host-created workspaces awaiting their agent chat', () => {
     ['split-horizontal', false, false, false],
     ['split-horizontal', true, true, true],
     ['split-vertical', false, true, false],
-    ['split-vertical', true, false, true]
+    ['split-vertical', true, false, true],
+    ['new-tab', true, false, false, true]
   ] as const)(
-    'provisions only the required terminals (%s, defaults=%s, wait=%s, activate=%s)',
-    async (setupScriptLaunchMode, withDefaults, wait, activate) => {
+    'places chat first (%s, defaults=%s, wait=%s, activate=%s)',
+    async (
+      setupScriptLaunchMode,
+      withDefaults,
+      wait,
+      activate,
+      terminalFallback: boolean = false
+    ) => {
       const path = '/tmp/workspaces/chat-create'
       const baseRepo = store.getRepo('repo-1')
       if (!baseRepo) {
@@ -51,18 +71,26 @@ describe('host-created workspaces awaiting their agent chat', () => {
           scripts: { setup: '', archive: '' }
         }
       }
-      const { runtimeStore } = makeRuntimeStoreWithWorkspaceSession(getDefaultWorkspaceSession())
+      const { runtimeStore, getSession } = makeRuntimeStoreWithWorkspaceSession(
+        getDefaultWorkspaceSession()
+      )
       const runtime = new OrcaRuntimeService({
         ...runtimeStore,
         getRepo: (id) => (id === repo.id ? repo : undefined),
         getRepos: () => [repo],
         getSettings: () => ({ ...runtimeStore.getSettings(), setupScriptLaunchMode })
       })
+      if (terminalFallback) {
+        runtime.syncWindowGraph(0, { tabs: [], leaves: [] })
+      }
       const spawn = vi.fn<NonNullable<RuntimePtyController['spawn']>>(async (args) => {
         if (!args.worktreeId || !args.tabId || !args.leafId) {
           throw new Error('missing pane identity')
         }
         const ptyId = `pty-${spawn.mock.calls.length}`
+        if (terminalFallback && args.command === 'claude') {
+          expect(getSession().tabGroups?.[args.worktreeId]?.[0]?.tabOrder[0]).toBe(args.tabId)
+        }
         return { id: ptyId }
       })
       runtime.setPtyController({
@@ -106,12 +134,88 @@ describe('host-created workspaces awaiting their agent chat', () => {
         startupPolicy: wait ? 'wait-for-setup' : 'start-immediately',
         terminalHandle: expect.any(String)
       })
-      const snapshot = await runtime.listMobileSessionTabs(`id:${result.worktree.id}`)
-      expect(snapshot.tabs).toHaveLength(commandCount)
-      expect(snapshot.tabs.every((tab) => tab.type === 'terminal')).toBe(true)
-      if (setupScriptLaunchMode === 'new-tab' && !withDefaults) {
-        expect(snapshot.tabs[0]?.title).toBe('Setup')
+      const before = await runtime.listMobileSessionTabs(`id:${result.worktree.id}`)
+      const publications: RuntimeMobileSessionTabsResult[] = []
+      runtime.onMobileSessionTabsChanged((snapshot) => publications.push(snapshot))
+      if (terminalFallback) {
+        const { tab } = await runtime.createMobileSessionTerminal(`id:${result.worktree.id}`, {
+          command: 'claude',
+          launchAgent: 'claude',
+          tabPosition: 'first',
+          activate: false
+        })
+        const fallback = await runtime.listMobileSessionTabs(`id:${result.worktree.id}`)
+        expect(orderedTabs(fallback)[0]?.id).toBe(tab.id)
+        expect(fallback.activeTabId).toBe(before.activeTabId)
+        expect(getSession().tabGroups?.[result.worktree.id]?.[0]?.tabOrder[0]).toBe(tab.parentTabId)
+        expect(publications).toHaveLength(1)
+        expect(orderedTabs(publications[0])[0]?.id).toBe(tab.id)
+        return
       }
+      await runtime.publishStructuredAgentSessionTab({
+        workspaceId: result.worktree.id,
+        sessionId: 'chat-1',
+        agent: 'claude',
+        activate,
+        tabPosition: 'first'
+      })
+      const snapshot = await runtime.listMobileSessionTabs(`id:${result.worktree.id}`)
+      expect(orderedTabs(snapshot).map((tab) => tab?.type)).toEqual([
+        'agent-session',
+        ...Array.from(
+          { length: withDefaults ? (setupScriptLaunchMode === 'new-tab' ? 3 : 2) : 1 },
+          () => 'terminal'
+        )
+      ])
+      expect(orderedTabs(snapshot)[0]?.id).toBe('agent-session:chat-1')
+      expect(snapshot.activeTabId).toBe(activate ? 'agent-session:chat-1' : before.activeTabId)
+      expect(publications).toHaveLength(1)
+      expect(
+        publications.every((frame) => orderedTabs(frame)[0]?.id === 'agent-session:chat-1')
+      ).toBe(true)
+      expect(getSession().tabGroups?.[result.worktree.id]?.[0]?.tabOrder[0]).toBe(
+        'agent-session:chat-1'
+      )
+
+      const restarted = new OrcaRuntimeService(runtimeStore)
+      await restarted.listMobileSessionTabs(`id:${result.worktree.id}`)
+      restarted.projectStructuredAgentSessionTab({
+        workspaceId: result.worktree.id,
+        sessionId: 'chat-1',
+        agent: 'claude',
+        activate: false
+      })
+      expect(
+        orderedTabs(await restarted.listMobileSessionTabs(`id:${result.worktree.id}`))[0]?.id
+      ).toBe('agent-session:chat-1')
+      const group = snapshot.tabGroups?.[0]
+      if (!group) {
+        throw new Error('missing created group')
+      }
+      const movedOrder = [...group.tabOrder.slice(1), 'agent-session:chat-1']
+      await runtime.moveMobileSessionTab(`id:${result.worktree.id}`, {
+        kind: 'reorder',
+        tabId: 'agent-session:chat-1',
+        targetGroupId: group.id,
+        tabOrder: movedOrder
+      })
+      await runtime.publishStructuredAgentSessionTab({
+        workspaceId: result.worktree.id,
+        sessionId: 'chat-1',
+        agent: 'claude',
+        activate: true,
+        tabPosition: 'first'
+      })
+      expect(getSession().tabGroups?.[result.worktree.id]?.[0]?.tabOrder).toEqual(movedOrder)
+      await runtime.publishStructuredAgentSessionTab({
+        workspaceId: result.worktree.id,
+        sessionId: 'later',
+        agent: 'claude',
+        activate: false
+      })
+      expect(
+        orderedTabs(await runtime.listMobileSessionTabs(`id:${result.worktree.id}`)).at(-1)?.id
+      ).toBe('agent-session:later')
     }
   )
 })

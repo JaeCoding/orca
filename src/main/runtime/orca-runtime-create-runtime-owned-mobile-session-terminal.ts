@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { copySleepingAgentLaunchConfig } from './runtime-agent-launch-resolution'
 import { deriveRemoteRuntimeTerminalCreateHandle } from './remote-runtime-terminal-create-identity'
 import { parsePaneKey } from '../../shared/stable-pane-id'
+import { placeSessionTabFirst } from './mobile-session-tab-merge'
 import { placeCreatedSessionTab } from '../../shared/session-tab-placement'
 import {
   buildHeadlessMobileSessionTabGroups,
@@ -55,6 +56,7 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
       createMutation?: { clientIdentity: string; id: string }
       launchAgent?: TuiAgent
       viewMode?: 'terminal' | 'chat'
+      tabPosition?: 'first'
       targetGroupId?: string
       supportsSplitGroupPlacement?: boolean
       launchConfig?: SleepingAgentLaunchConfig
@@ -111,6 +113,7 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
         ...(opts.launchConfig ? { launchConfig: opts.launchConfig } : {}),
         ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
         ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
+        ...(opts.tabPosition ? { tabPosition: opts.tabPosition } : {}),
         ...(opts.targetGroupId ? { targetGroupId: opts.targetGroupId } : {}),
         startupCommandDelivery: opts.startupCommandDelivery,
         ...(opts.identity
@@ -190,6 +193,11 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
           candidate.parentTabId === parentTabId &&
           candidate.leafId === leafId
       ) ?? null
+    const placeFirst =
+      opts.tabPosition === 'first' &&
+      !existing?.tabs.some(
+        (candidate) => candidate.type === 'terminal' && candidate.parentTabId === parentTabId
+      )
     const parentLayout = buildMaterializedHeadlessParentLayout(
       leafId,
       livePty.pty.ptyId,
@@ -203,6 +211,7 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
       ptyId: livePty.pty.ptyId,
       incarnationId: livePty.pty.incarnationId,
       title: terminal.title ?? livePty.pty.title ?? 'Terminal',
+      ...(placeFirst ? { initialTabPosition: 'first' as const } : {}),
       ...(cwd ? { startupCwd: cwd } : {}),
       ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
       ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
@@ -219,7 +228,17 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
       })),
       tab,
       afterTabId,
-      { afterParentGroup: opts.supportsSplitGroupPlacement !== false }
+      {
+        afterParentGroup: opts.supportsSplitGroupPlacement !== false,
+        ...(placeFirst ? { tabPosition: 'first' as const } : {})
+      }
+    )
+    const groups = buildHeadlessMobileSessionTabGroups(
+      worktreeId,
+      tabs,
+      activate ? tab : null,
+      existing?.tabGroups,
+      opts.targetGroupId ? { tabId: parentTabId, groupId: opts.targetGroupId } : undefined
     )
     const next: RuntimeMobileSessionTabsSnapshot = {
       worktree: worktreeId,
@@ -233,16 +252,19 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
           : (existing?.activeGroupId ?? getHeadlessMobileSessionGroupId(worktreeId)),
       activeTabId: activate ? tab.id : (existing?.activeTabId ?? null),
       activeTabType: activate ? 'terminal' : (existing?.activeTabType ?? null),
-      tabGroups: buildHeadlessMobileSessionTabGroups(
-        worktreeId,
-        tabs,
-        activate ? tab : null,
-        existing?.tabGroups,
-        opts.targetGroupId ? { tabId: parentTabId, groupId: opts.targetGroupId } : undefined
-      ),
+      tabGroups: placeFirst
+        ? placeSessionTabFirst(groups, existing?.tabs ?? [], parentTabId)
+        : groups,
       // Why: keep group split geometry on new-tab creation, else opening a terminal while split loses the arrangement.
       ...(existing?.tabGroupLayout ? { tabGroupLayout: existing.tabGroupLayout } : {}),
       tabs
+    }
+    if (placeFirst) {
+      try {
+        this.persistHeadlessTabGroups(worktreeId, next.tabGroups ?? [], next.tabGroupLayout)
+      } catch (error) {
+        console.warn('[agent-launch] saving the created fallback placement failed', error)
+      }
     }
     // Why: emit the stored snapshot, not the pre-store one — storing grafts on retirement
     // proofs, and subscribers dedupe on version so they would never see them otherwise.

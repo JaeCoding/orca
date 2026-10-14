@@ -242,7 +242,7 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
             title: launchOpts.title ?? null,
             activate: presentation === 'focused',
             selectIfNoActiveTab: presentation !== 'background',
-            ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
+            ...dependencies.terminalTabCreationPlacement(launchOpts),
             ...(cwd !== workspace.path ? { startupCwd: cwd } : {})
           })
         }
@@ -257,7 +257,7 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
               ...(effectiveLaunchConfig ? { launchConfig: effectiveLaunchConfig } : {}),
               ...(launchToken ? { launchToken } : {}),
               ...(launchOpts.launchAgent ? { launchAgent: launchOpts.launchAgent } : {}),
-              ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
+              ...dependencies.terminalTabCreationPlacement(launchOpts),
               activate: presentation === 'focused',
               ...(presentation ? { presentation } : {}),
               ...dependencies.terminalRevealViewerOptions(opts),

@@ -23,6 +23,7 @@ export type WorktreeActivationStore = Partial<WorktreeRuntimeOwnerState> & {
       launchAgent?: TuiAgent
       recordInteraction?: boolean
       viewMode?: Tab['viewMode']
+      tabPosition?: 'first'
       activate?: boolean
     }
   ) => { id: string }
@@ -63,6 +64,7 @@ export type WorktreeActivationStore = Partial<WorktreeRuntimeOwnerState> & {
 }
 
 export type InitialTerminalOptions = {
+  tabPosition?: 'first'
   activateCreatedTabs?: boolean
   backendStartupTerminalSpawned?: boolean
   /** Create a preserved fallback startup beside setup/default terminals. */

@@ -1,5 +1,6 @@
 export type SessionTabPlacementOptions = {
   afterParentGroup?: boolean
+  tabPosition?: 'first'
 }
 
 /** Places a created tab after the anchor, or after its parent group when enabled. */
@@ -10,6 +11,9 @@ export function placeCreatedSessionTab<T extends { id: string; parentTabId?: str
   options: SessionTabPlacementOptions = {}
 ): T[] {
   const next = tabs.filter((tab) => tab.id !== created.id)
+  if (options.tabPosition === 'first') {
+    return [created, ...next]
+  }
   const anchor = afterTabId ? next.findIndex((tab) => tab.id === afterTabId) : -1
   if (anchor < 0) {
     next.push(created)

@@ -46,6 +46,7 @@ export type LaunchAgentInNewTabArgs = LaunchAgentInNewTabRequest & {
   worktreeId: string
   /** Tab group the user launched from; keeps split-group launches in that pane instead of the active group. */
   groupId?: string
+  tabPosition?: 'first'
   /** Optional initial prompt; delivery depends on `promptDelivery` and the agent's prompt mode. */
   prompt?: string
   /** Optional CLI arguments appended to the selected agent command. */
@@ -213,6 +214,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       worktreeId,
       environmentId: runtimeEnvironmentId,
       groupId,
+      ...(args.tabPosition ? { tabPosition: args.tabPosition } : {}),
       cwd: initialCwd,
       startupPlan,
       prompt: trimmedPrompt,
@@ -246,6 +248,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       agent,
       worktreeId,
       ...(groupId ? { groupId } : {}),
+      ...(args.tabPosition ? { tabPosition: args.tabPosition } : {}),
       prompt: trimmedPrompt,
       ...(agentArgs !== undefined ? { agentArgs } : {}),
       ...(initialCwd?.trim() ? { cwd: initialCwd } : {}),
@@ -268,6 +271,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
   // Why: queue startup BEFORE TerminalPane mounts — it snapshots pendingStartupByTabId in useState on first render.
   const tab = store.createTab(worktreeId, groupId, undefined, {
     launchAgent: agent,
+    ...(args.tabPosition ? { tabPosition: args.tabPosition } : {}),
     quickCommandLabel,
     ...(pendingActivationSpawn ? { pendingActivationSpawn: true } : {}),
     ...(activate === false ? { activate: false } : {})

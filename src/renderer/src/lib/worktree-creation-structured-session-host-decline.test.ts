@@ -118,6 +118,7 @@ describe('a background worktree create whose paired server declines the chat', (
           method: 'session.tabs.createTerminal',
           params: expect.objectContaining({
             command: "claude --model opus 'fix the flaky test'",
+            tabPosition: 'first',
             select: false
           })
         })
@@ -156,6 +157,7 @@ describe('a background worktree create whose own machine declines the chat', () 
   it("opens the request's agent terminal in place, with no chat, leaving the user where they are", async () => {
     mocks.createSupport.mockResolvedValue({ supported: false, reason: 'wsl' })
     seedThisMachine()
+    useAppStore.getState().createTab(LOCAL_CREATED.id, undefined, undefined, { activate: false })
 
     await launchStructuredWorktreeSession({
       creationId: 'creation-1',
@@ -168,10 +170,13 @@ describe('a background worktree create whose own machine declines the chat', () 
     })
 
     await vi.waitFor(() =>
-      expect(useAppStore.getState().tabsByWorktree[LOCAL_CREATED.id]).toHaveLength(1)
+      expect(useAppStore.getState().tabsByWorktree[LOCAL_CREATED.id]).toHaveLength(2)
     )
     const state = useAppStore.getState()
-    const tab = state.tabsByWorktree[LOCAL_CREATED.id]![0]!
+    const tab = state.tabsByWorktree[LOCAL_CREATED.id]!.find(
+      (entry) => entry.launchAgent === 'claude'
+    )!
+    expect(state.groupsByWorktree[LOCAL_CREATED.id]?.[0]?.tabOrder[0]).toBe(tab.id)
     expect(state.pendingStartupByTabId[tab.id]).toMatchObject({
       command: "claude --model opus 'fix the flaky test'"
     })

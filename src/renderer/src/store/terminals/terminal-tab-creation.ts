@@ -16,7 +16,11 @@ import {
   sanitizeRecentTabIds,
   updateGroup
 } from '../slices/tab-group-state'
-import { dedupeTabOrder } from '../../../../shared/workspace-layout/tab-order'
+import {
+  applyTabOrderSortValues,
+  dedupeTabOrder,
+  insertTabIdIntoOrder
+} from '../../../../shared/workspace-layout/tab-order'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { ownsGlobalSelection } from '../global-selection-owner'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
@@ -196,7 +200,14 @@ export function createTerminalTabCreationActions(
           // Why: omit for non-agent tabs so they keep the implicit 'terminal' view mode.
           ...(options?.viewMode ? { viewMode: options.viewMode } : {})
         }
-        const nextGroupOrder = dedupeTabOrder([...cleanedGroupOrder, unifiedTab.id])
+        const nextGroupOrder = insertTabIdIntoOrder(
+          cleanedGroupOrder,
+          existingUnifiedTabs,
+          unifiedTab.id,
+          false,
+          undefined,
+          options?.tabPosition
+        )
         const nextRecent = shouldActivate
           ? pushRecentTabId(sanitizeRecentTabIds(group.recentTabIds, nextGroupOrder), unifiedTab.id)
           : sanitizeRecentTabIds(cleanedTargetGroup.recentTabIds, nextGroupOrder)
@@ -219,7 +230,7 @@ export function createTerminalTabCreationActions(
             ...s.unifiedTabsByWorktree,
             [worktreeId]: existingTerminalTab
               ? existingUnifiedTabs
-              : [...existingUnifiedTabs, unifiedTab]
+              : applyTabOrderSortValues([...existingUnifiedTabs, unifiedTab], nextGroupOrder)
           },
           groupsByWorktree: {
             ...groupsByWorktree,

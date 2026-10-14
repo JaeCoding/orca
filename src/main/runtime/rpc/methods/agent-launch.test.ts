@@ -568,6 +568,7 @@ describe('the terminal factory', () => {
       startupAgent: 'claude',
       // A refused structured session opens its fallback tab as a terminal.
       viewMode: 'terminal',
+      tabPosition: 'first',
       // A paired device's launch never moves the desktop window.
       surfaceOwner: false,
       onPtySpawnDispatched: expect.any(Function)

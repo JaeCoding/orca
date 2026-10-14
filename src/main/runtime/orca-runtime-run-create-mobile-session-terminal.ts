@@ -31,6 +31,7 @@ export class OrcaRuntimeWithRunCreateMobileSessionTerminal extends OrcaRuntimeWi
       launchConfig?: SleepingAgentLaunchConfig
       launchAgent?: TuiAgent
       viewMode?: 'terminal' | 'chat'
+      tabPosition?: 'first'
       activate?: boolean
       clientNavigationId?: string
       clientMutationId?: string
@@ -84,6 +85,7 @@ export class OrcaRuntimeWithRunCreateMobileSessionTerminal extends OrcaRuntimeWi
           },
           createMutation: { clientIdentity, id: opts.clientMutationId },
           viewMode: opts.viewMode,
+          tabPosition: opts.tabPosition,
           targetGroupId: opts.targetGroupId,
           supportsSplitGroupPlacement: opts.supportsSplitGroupPlacement,
           signal: opts.signal
@@ -104,6 +106,7 @@ export class OrcaRuntimeWithRunCreateMobileSessionTerminal extends OrcaRuntimeWi
           startupCommandDelivery: startupCommand.startupCommandDelivery,
           launchAgent: startupCommand.launchAgent,
           viewMode: opts.viewMode,
+          tabPosition: opts.tabPosition,
           targetGroupId: opts.targetGroupId,
           supportsSplitGroupPlacement: opts.supportsSplitGroupPlacement,
           launchConfig: startupCommand.launchConfig,
@@ -163,6 +166,7 @@ export class OrcaRuntimeWithRunCreateMobileSessionTerminal extends OrcaRuntimeWi
           ...(startupCommand.launchConfig ? { launchConfig: startupCommand.launchConfig } : {}),
           ...(startupCommand.launchAgent ? { launchAgent: startupCommand.launchAgent } : {}),
           ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
+          ...(opts.tabPosition ? { tabPosition: opts.tabPosition } : {}),
           startupCommandDelivery: startupCommand.startupCommandDelivery,
           source: 'runtime-session',
           activate: opts.activate
@@ -184,7 +188,8 @@ export class OrcaRuntimeWithRunCreateMobileSessionTerminal extends OrcaRuntimeWi
         paired: pairedCreate,
         selectIfNoActiveTab: true,
         ...(startupCommand.command ? { startupCommand: startupCommand.command } : {}),
-        ...(opts.viewMode ? { viewMode: opts.viewMode } : {})
+        ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
+        ...(opts.tabPosition ? { tabPosition: opts.tabPosition } : {})
       })
       try {
         // Why: the PTY spawn and the tabCreate reply race on independent IPC
@@ -230,6 +235,7 @@ export class OrcaRuntimeWithRunCreateMobileSessionTerminal extends OrcaRuntimeWi
             identity: { tabId: pendingSurface.tab.parentTabId, leafId: pendingSurface.tab.leafId },
             launchAgent: startupCommand.launchAgent,
             viewMode: opts.viewMode,
+            tabPosition: opts.tabPosition,
             targetGroupId: opts.targetGroupId,
             supportsSplitGroupPlacement: opts.supportsSplitGroupPlacement,
             launchConfig: startupCommand.launchConfig,

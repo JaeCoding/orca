@@ -13,7 +13,8 @@ import {
 } from './mobile-session-layout-projection'
 import {
   mergeMobileSessionSnapshotTabs,
-  mergeMobileSessionTabGroups
+  mergeMobileSessionTabGroups,
+  placeSessionTabFirst
 } from './mobile-session-tab-merge'
 
 export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRuntimeWithHasLiveOrPersistedServeOrSshOwnedPtyBinding {
@@ -32,6 +33,7 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
       selectIfNoActiveTab?: boolean
       startupCwd?: string
       viewMode?: 'terminal' | 'chat'
+      tabPosition?: 'first'
       split?: { splitFromLeafId: string; direction: 'horizontal' | 'vertical' }
       notify?: boolean
     }
@@ -54,6 +56,11 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
         candidate.parentTabId === args.tabId &&
         candidate.leafId === args.leafId
     )
+    const placeFirst =
+      args.tabPosition === 'first' &&
+      !existing?.tabs.some(
+        (candidate) => candidate.type === 'terminal' && candidate.parentTabId === args.tabId
+      )
     // Why: a split inserts into the parent tab's layout, which lives on the
     // sibling surface, not this new leaf's (empty) existing surface.
     const baseLayout = args.split
@@ -89,6 +96,9 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
       ptyId: pty.ptyId,
       incarnationId: pty.incarnationId,
       title,
+      ...((args.tabPosition ?? existingTab?.initialTabPosition)
+        ? { initialTabPosition: args.tabPosition ?? existingTab?.initialTabPosition }
+        : {}),
       ...(pty.launchAgent ? { launchAgent: pty.launchAgent } : {}),
       ...(args.startupCwd ? { startupCwd: args.startupCwd } : {}),
       ...(viewMode ? { viewMode } : {}),
@@ -126,6 +136,12 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
     const terminalTabs = tabs.filter(
       (candidate): candidate is RuntimeMobileSessionTerminalTab => candidate.type === 'terminal'
     )
+    const groups = mergeMobileSessionTabGroups(
+      worktreeId,
+      existing?.tabGroups ?? [],
+      terminalTabs,
+      activeTab?.type === 'terminal' ? activeTab : null
+    )
     const next: RuntimeMobileSessionTabsSnapshot = {
       worktree: worktreeId,
       publicationEpoch:
@@ -134,14 +150,18 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
       activeGroupId: existing?.activeGroupId ?? getHeadlessMobileSessionGroupId(worktreeId),
       activeTabId: activeTab?.id ?? null,
       activeTabType: activeTab?.type ?? null,
-      tabGroups: mergeMobileSessionTabGroups(
-        worktreeId,
-        existing?.tabGroups ?? [],
-        terminalTabs,
-        activeTab?.type === 'terminal' ? activeTab : null
-      ),
+      tabGroups: placeFirst
+        ? placeSessionTabFirst(groups, existing?.tabs ?? [], args.tabId)
+        : groups,
       ...(existing?.tabGroupLayout ? { tabGroupLayout: existing.tabGroupLayout } : {}),
       tabs
+    }
+    if (placeFirst) {
+      try {
+        this.persistHeadlessTabGroups(worktreeId, next.tabGroups ?? [], next.tabGroupLayout)
+      } catch (error) {
+        console.warn('[agent-launch] saving the created terminal placement failed', error)
+      }
     }
     this.storeMobileSessionSnapshot(worktreeId, next)
     if (args.notify !== false) {

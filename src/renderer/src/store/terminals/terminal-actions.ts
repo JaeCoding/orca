@@ -78,6 +78,7 @@ export type TerminalActions = {
       quickCommandLabel?: string | null
       viewMode?: Tab['viewMode']
       startupCwd?: string
+      tabPosition?: 'first'
       forceHostRuntime?: boolean
     }
   ) => TerminalTab
