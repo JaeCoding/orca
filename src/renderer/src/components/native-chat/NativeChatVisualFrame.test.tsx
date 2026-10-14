@@ -23,7 +23,7 @@ vi.mock('@/lib/http-link-routing', () => ({
 import { NativeChatVisualFrame } from './NativeChatVisualFrame'
 import { acquireWebviewsDragPassthrough } from '../browser-pane/host-guest/webview-drag-passthrough'
 
-const visual = { revision: 'r1', html: '<p>chart</p>', path: null }
+const visual = { revision: 'r1', html: '<p>chart</p>', path: '/v' }
 
 function Harness(props: { onRetired?: () => void }) {
   const scope = useRef<HTMLDivElement | null>(null)
