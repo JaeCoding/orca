@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { SquareArrowOutUpRight } from 'lucide-react'
 import { toast } from 'sonner'
+import type { ArtifactWriteRequest } from '../../../../shared/artifacts'
+import { ArtifactPublishButton } from '@/components/artifacts/ArtifactPublishButton'
+import { ArtifactPublishPreparationError } from '@/components/artifacts/artifact-publish-flow'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { translate } from '@/i18n/i18n'
+import { fileArtifactSourceKey } from '@/lib/file-artifact-source-key'
 import { openFileInBrowserTab } from '@/lib/file-preview'
+import { basename } from '@/lib/path'
+import { getRuntimeTargetHostId, runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
 import { NATIVE_CHAT_VISUAL_RESERVED_HEIGHT, NativeChatVisualFrame } from './NativeChatVisualFrame'
 import { observeTranscriptVisibility } from './NativeChatTranscriptChrome'
 import type { NativeChatVisualOwner } from './native-chat-visual-owner'
+import {
+  readNativeChatVisual,
+  type NativeChatVisualIdentity
+} from './native-chat-visual-read-client'
 import { useNativeChatVisualDocument } from './use-native-chat-visual-document'
 
 export function NativeChatVisualUnavailable(): React.JSX.Element {
@@ -23,6 +33,23 @@ function openNativeChatVisualFile(worktreeId: string, path: string | null): void
   const plan = path ? openFileInBrowserTab({ filePath: path, worktreeId }) : null
   if (plan?.status === 'unsupported') {
     toast.error(plan.message)
+  }
+}
+
+/** Publishes the file as saved now, never the copy on screen; a failed read publishes nothing. */
+async function readNativeChatVisualShareRequest(
+  identity: NativeChatVisualIdentity,
+  sourceKey: string
+): Promise<ArtifactWriteRequest> {
+  const outcome = await readNativeChatVisual(identity, { fresh: true })
+  if (!outcome.ok) {
+    throw new ArtifactPublishPreparationError('visual-unreadable')
+  }
+  return {
+    sourceKey,
+    content: outcome.document.html,
+    contentType: 'text/html',
+    fileName: basename(identity.file)
   }
 }
 
@@ -42,10 +69,10 @@ export function NativeChatInlineVisual({
   const boxRef = useRef<HTMLDivElement | null>(null)
   const [near, setNear] = useState(false)
   const [retired, setRetired] = useState(false)
-  const state = useNativeChatVisualDocument(
-    { target: owner.target, sessionId: owner.sessionId, file },
-    near
-  )
+  // Share's popover is portalled, so hover and focus-within can't keep the toolbar shown.
+  const [shareOpen, setShareOpen] = useState(false)
+  const identity = { target: owner.target, sessionId: owner.sessionId, file }
+  const state = useNativeChatVisualDocument(identity, near)
 
   useEffect(() => {
     const element = boxRef.current
@@ -64,6 +91,17 @@ export function NativeChatInlineVisual({
   }
   const label = title ?? file
   const openLabel = translate('components.native-chat.visualOpenInNewTab', 'Open in new tab')
+  const sharePath = state.status === 'ready' ? state.document.path : null
+  // The file's own key on the chat's host, so Share here and on the opened file update one link.
+  const shareKey =
+    sharePath &&
+    fileArtifactSourceKey(
+      {
+        executionHostId: getRuntimeTargetHostId(owner.target),
+        runtimeEnvironmentId: runtimeTargetEnvironmentId(owner.target)
+      },
+      sharePath
+    )
 
   return (
     <div ref={boxRef} className="group/visual relative my-3">
@@ -75,7 +113,10 @@ export function NativeChatInlineVisual({
             themeScope={boxRef}
             onRetired={() => setRetired(true)}
           />
-          <div className="absolute top-2 right-2 transition-opacity can-hover:opacity-0 group-hover/visual:opacity-100 focus-within:opacity-100">
+          <div
+            data-share-open={shareOpen}
+            className="absolute top-2 right-2 flex items-center gap-1 transition-opacity can-hover:opacity-0 group-hover/visual:opacity-100 focus-within:opacity-100 data-[share-open=true]:opacity-100"
+          >
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -91,6 +132,16 @@ export function NativeChatInlineVisual({
                 {openLabel}
               </TooltipContent>
             </Tooltip>
+            {shareKey ? (
+              <ArtifactPublishButton
+                variant="outline"
+                size="icon-xs"
+                sourceKey={shareKey}
+                createRequest={() => readNativeChatVisualShareRequest(identity, shareKey)}
+                open={shareOpen}
+                onOpenChange={setShareOpen}
+              />
+            ) : null}
           </div>
         </>
       ) : (
