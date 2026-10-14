@@ -51,27 +51,11 @@ describe('existing chat permission backfill', () => {
       const beforeClaude = store.getRecord('session-claude')
       const beforeCodex = store.getRecord('session-codex')
       await store.backfillChatPermissionModes(() => mode === 'full-access')
-      expect(store.getRecord('session-claude')?.options).toEqual({
-        model: 'opus',
-        effort: 'high',
-        permissionMode: mode
-      })
-      expect(store.getRecord('session-codex')?.options).toEqual({ permissionMode: mode })
-      expect(store.getRecord('session-claude')).toEqual({
-        ...beforeClaude,
-        options: { model: 'opus', effort: 'high', permissionMode: mode }
-      })
-      expect(store.getRecord('session-codex')).toEqual({
-        ...beforeCodex,
-        options: { permissionMode: mode }
-      })
+      expect(store.getRecord('session-claude')).toEqual({ ...beforeClaude, permissionMode: mode })
+      expect(store.getRecord('session-codex')).toEqual({ ...beforeCodex, permissionMode: mode })
       const reopened = await openTestAgentSessionRecordStore(root)
-      expect(reopened.getRecord('session-claude')?.options).toEqual(
-        store.getRecord('session-claude')?.options
-      )
-      expect(reopened.getRecord('session-codex')?.options).toEqual(
-        store.getRecord('session-codex')?.options
-      )
+      expect(reopened.getRecord('session-claude')?.permissionMode).toBe(mode)
+      expect(reopened.getRecord('session-codex')?.permissionMode).toBe(mode)
     }
   )
 
@@ -105,7 +89,7 @@ describe('existing chat permission backfill', () => {
     await expect(store.backfillChatPermissionModes(() => false)).resolves.toBeUndefined()
     expect(store.listRecords()).toEqual(before)
     expect(store.getRecord('session-claude')).toBe(before.find((row) => row.provider === 'claude'))
-    expect(store.getRecord('session-codex')?.options?.permissionMode).toBe('full-access')
+    expect(store.getRecord('session-codex')?.permissionMode).toBe('full-access')
   })
 
   it('skips a store written by a newer build without an error or in-memory change', async () => {
@@ -115,7 +99,7 @@ describe('existing chat permission backfill', () => {
     expect(store.readOnly).toBe(true)
     expect(store.getRecord('session-claude')).not.toBeNull()
     await expect(store.backfillChatPermissionModes(() => true)).resolves.toBeUndefined()
-    expect(store.getRecord('session-claude')?.options).toBeUndefined()
+    expect(store.getRecord('session-claude')?.permissionMode).toBeUndefined()
   })
 
   it.each([
@@ -129,9 +113,9 @@ describe('existing chat permission backfill', () => {
       })
       const store = await openTestAgentSessionRecordStore(root)
       await store.backfillChatPermissionModes((provider) => provider === bypassing)
-      expect(store.getRecord('session-claude')?.options).toEqual({ permissionMode: claude })
-      expect(store.getRecord('session-codex')?.options).toEqual({ permissionMode: codex })
-      expect(store.getRecord('session-grok')?.options).toBeUndefined()
+      expect(store.getRecord('session-claude')?.permissionMode).toBe(claude)
+      expect(store.getRecord('session-codex')?.permissionMode).toBe(codex)
+      expect(store.getRecord('session-grok')?.permissionMode).toBeUndefined()
     }
   )
 
@@ -170,14 +154,7 @@ describe('existing chat permission backfill', () => {
     const before = store.getRecord('session-codex')
     expect(before).not.toBeNull()
     await store.backfillChatPermissionModes(() => true)
-    expect(store.getRecord('session-codex')).toEqual({
-      ...before,
-      options: {
-        model: 'old-model',
-        effort: 'high',
-        permissionMode: 'full-access'
-      }
-    })
+    expect(store.getRecord('session-codex')).toEqual({ ...before, permissionMode: 'full-access' })
   })
 
   it('rolls back every row if saving fails, then succeeds on the next startup pass', async () => {
@@ -188,16 +165,14 @@ describe('existing chat permission backfill', () => {
       "CREATE TRIGGER refuse_backfill_write BEFORE UPDATE ON agent_session_records WHEN NEW.session_id = 'session-codex' BEGIN SELECT RAISE(ABORT, 'disk full'); END"
     )
     await expect(store.backfillChatPermissionModes(() => true)).rejects.toThrow('disk full')
-    expect(store.listRecords().every((row) => row.options === undefined)).toBe(true)
+    expect(store.listRecords().every((row) => row.permissionMode === undefined)).toBe(true)
     expect(
       (await openTestAgentSessionRecordStore(root))
         .listRecords()
-        .every((row) => row.options === undefined)
+        .every((row) => row.permissionMode === undefined)
     ).toBe(true)
     db.exec('DROP TRIGGER refuse_backfill_write')
     await store.backfillChatPermissionModes(() => true)
-    expect(store.listRecords().every((row) => row.options?.permissionMode === 'full-access')).toBe(
-      true
-    )
+    expect(store.listRecords().every((row) => row.permissionMode === 'full-access')).toBe(true)
   })
 })

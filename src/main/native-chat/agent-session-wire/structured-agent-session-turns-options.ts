@@ -1,4 +1,3 @@
-import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../shared/agent-chat-permission-mode'
 import { refuse, type AgentSessionOptionResult } from '../../../shared/agent-session-wire'
 import { isAgentSessionOptionRejectedError } from './structured-agent-session-option-error'
 import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
@@ -29,14 +28,7 @@ export async function performSetOption(
     }
     throw error
   }
-  const providerOptions = applied ?? { [input.key]: input.value }
-  // The provider answers with its own options only; the permission mode is the record's.
-  const permissionMode = ctx.persistedOptions?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID]
-  await ctx.persistOptions(
-    permissionMode === undefined
-      ? providerOptions
-      : { ...providerOptions, [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: permissionMode }
-  )
+  await ctx.persistOptions(applied ?? { [input.key]: input.value })
   ctx.publish()
   return { ok: true, value: { ...input, ...(applied ? { options: { ...applied } } : {}) } }
 }

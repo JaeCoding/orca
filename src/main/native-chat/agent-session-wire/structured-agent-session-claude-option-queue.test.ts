@@ -132,18 +132,4 @@ describe('Claude structured session options', () => {
     expect(await picked).toMatchObject({ ok: true, value: { options: { model: PICKED_MODEL } } })
     expect(store.getRecord(SESSION)?.options).toEqual({ model: PICKED_MODEL })
   })
-
-  it('keeps the saved permission mode through a model pick', async () => {
-    const saved = { permissionMode: 'full-access', model: DEFAULT_MODEL }
-    const fence = store.getRecord(SESSION)!.lease.runtimeFence
-    await store.replaceSessionOptions({ sessionId: SESSION, fence, options: saved, now: NOW })
-    const fields = { key: 'model', value: PICKED_MODEL }
-
-    await host.setOption(CALLER, {
-      envelope: envelope('agentSession.setOption', fields),
-      ...fields
-    })
-
-    expect(store.getRecord(SESSION)?.options).toEqual({ ...saved, model: PICKED_MODEL })
-  })
 })
