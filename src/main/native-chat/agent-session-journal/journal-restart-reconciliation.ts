@@ -58,7 +58,7 @@ function comparableSubmissions(journal: AgentSessionJournal): AgentJournalSubmis
       isQueuedAgentJournalSubmission(submission) ||
       // The provider's copy leads with the stopped history it carried, so its fingerprint cannot
       // match; like an attachment's, its absence is no evidence and it stays `unknown`.
-      journal.stoppedHistory.carried().has(submission.clientMessageId)
+      journal.stoppedHistoryCarried().has(submission.clientMessageId)
     ) {
       return false
     }

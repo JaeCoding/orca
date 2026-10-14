@@ -1,9 +1,7 @@
 // Ordinary messages Orca proves the agent never received, owed to it at most once: derived from the
-// journal on each handover (host only), and delivered with the person's next send that opens a turn:
-// injected into the agent's own log where it can take them (Codex), else carried at the front of
-// that send. One is covered by an injection record that no later row proves refused, or by a
-// carrier's `carries` unless that carrier was refused before anything reached the agent. Words only:
-// a stopped message's images are not replayed.
+// journal on each handover (host only), and carried at the front of the person's next send that
+// opens a turn, for every agent. One is covered by a carrier's `carries` unless that carrier was
+// refused before anything reached the agent. Words only: a stopped message's images are not replayed.
 
 import { readAgentSessionFailureFact, type SubmissionRejectionKind } from './agent-session-failure'
 import type {
@@ -24,8 +22,6 @@ export type StoppedHistoryJournal = {
   submissions: readonly AgentJournalSubmission[]
   /** Each handed-over send's carried history, by its client message id. */
   carried: ReadonlyMap<string, readonly string[]>
-  /** Each injection not proven refused, by injection id. */
-  injected: ReadonlyMap<string, { readonly messageIds: readonly string[] }>
   /** The latest /clear's sequence; 0 when none. */
   clearSequence: number
   body: (clientMessageId: string) => AgentJournalItemBody | null
@@ -84,16 +80,17 @@ function refusedBeforeWrite(carrier: AgentJournalSubmission): boolean {
   return kind !== undefined && REFUSED_BEFORE_WRITE.has(kind)
 }
 
-// Per message, the larger transport's framing beyond its words: Codex's two item wrappers and its
-// own interrupted record.
-export const STOPPED_MESSAGE_FRAMING_BYTES = 512
-
 const encoder = new TextEncoder()
 
 /** Words as a send's size limit counts them. */
 function wordsBytes(words: string): number {
   return encoder.encode(JSON.stringify(words)).length
 }
+
+/** Per message, the framing `withStoppedHistory` writes beyond its words. */
+export const STOPPED_MESSAGE_FRAMING_BYTES = wordsBytes(
+  `\n\n${STOPPED_MESSAGE_INTERRUPTED_MARKER}\n\n`
+)
 
 /** What a stopped message takes of the send it rides with. */
 function deliveryBytes(words: string): number {
@@ -106,7 +103,7 @@ export function agentSessionStoppedHistoryOwed(
   journal: StoppedHistoryJournal
 ): OwedStoppedMessage[] {
   const byId = new Map(journal.submissions.map((entry) => [entry.clientMessageId, entry]))
-  const covered = new Set([...journal.injected.values()].flatMap((record) => record.messageIds))
+  const covered = new Set<string>()
   for (const [carrierId, carried] of journal.carried) {
     const carrier = byId.get(carrierId)
     if (carrier && !refusedBeforeWrite(carrier)) {

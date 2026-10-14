@@ -11,7 +11,6 @@ import type {
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { CodexJournalTranslationAdmission } from './codex-structured-journal-translation'
 import { dispatchCodexTurn, isCodexTurnOptionKey } from './codex-structured-turn-start'
-import { injectCodexStoppedMessages } from './codex-stopped-message-injection'
 import { agentSessionFailureFact, providerDiagnosticOf } from '../../shared/agent-session-failure'
 import { supportsCodexStructuredLocation } from './codex-structured-location-support'
 import { CodexStructuredSessionTeardown } from './codex-structured-session-teardown'
@@ -227,12 +226,6 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
       session.dispatchPending = false
     }
   }
-
-  injectsStoppedMessages = (id: string) => !this.sessions.get(id)?.cannotInjectHistory
-
-  injectStoppedMessages: NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']> = (
-    input
-  ) => injectCodexStoppedMessages(this.sessions.get(input.sessionId), input)
 
   cancelTurn: StructuredAgentSessionAdapter['cancelTurn'] = (request) =>
     cancelCodexStructuredTurn({

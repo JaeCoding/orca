@@ -41,7 +41,6 @@ import type {
 } from '../../../shared/agent-session-wire'
 import type { AgentSessionRefusalReason } from '../../../shared/agent-session-wire-refusals'
 import type { SubmissionRejectionFact } from '../../../shared/agent-session-failure'
-import type { StructuredAgentSessionStoppedHistoryAdapter } from './structured-agent-session-stopped-history-adapter'
 import type {
   AgentSessionCancelOutcome,
   StructuredAgentSessionAdapterStop
@@ -450,4 +449,4 @@ export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & 
   disposeSession?(sessionId: string): Promise<boolean>
   /** Host acknowledgement that the proven-dead child, lease and journal owner are released. */
   acknowledgeSessionRelease?(sessionId: string): void
-} & StructuredAgentSessionStoppedHistoryAdapter
+}

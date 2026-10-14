@@ -142,8 +142,6 @@ export type CodexSession = {
   /** Stops waiting for the turn Codex answered a send into to open. */
   turnOpenWaits: CodexTurnOpenWaits
   dispatchPending?: boolean
-  /** This Codex has no `thread/inject_items`: stopped messages ride in its sends instead. */
-  cannotInjectHistory?: true
   prompts: CodexAcquisitionWindow['prompts']
   options: Map<string, string>
   reportedOptions: {

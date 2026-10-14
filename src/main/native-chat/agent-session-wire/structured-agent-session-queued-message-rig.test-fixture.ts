@@ -281,7 +281,6 @@ export async function createQueuedMessageTestRig(
       return host
     },
     dispatch,
-    injectStoppedMessages: provider.injectStoppedMessages,
     cancelTurn,
     closeSession,
     compact,

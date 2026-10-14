@@ -69,7 +69,6 @@ function owed(
   submissions: AgentJournalSubmission[],
   options: {
     carried?: Record<string, string[]>
-    injected?: Record<string, string[]>
     clearSequence?: number
     bodies?: Record<string, AgentJournalItemBody>
   } = {}
@@ -77,9 +76,6 @@ function owed(
   const journal: StoppedHistoryJournal = {
     submissions,
     carried: new Map(Object.entries(options.carried ?? {})),
-    injected: new Map(
-      Object.entries(options.injected ?? {}).map(([id, messageIds]) => [id, { messageIds }])
-    ),
     clearSequence: options.clearSequence ?? 0,
     body: (id) => options.bodies?.[id] ?? message(id)
   }
@@ -106,28 +102,12 @@ describe('which stopped messages the agent is owed', () => {
       )
     ).toEqual(['a', 'b'])
   })
-
-  it('a carrier refused before any write leaves them owed; any other outcome covers them', () => {
-    const carried = { carried: { c: ['a'] } }
-    for (const kind of ['queueFull', 'writeFailed'] as const) {
-      expect(owed([sent('a', 2, STOPPED), sent('c', 9, rejected(kind))], carried)).toEqual(['a'])
-    }
-    for (const carrier of [
-      sent('c', 9, { dispatchState: 'accepted' }),
-      sent('c', 9),
-      sent('c', 9, { dispatchState: 'unknown', reason: 'lost', recovered: true }),
-      sent('c', 9, rejected('providerRejected'))
-    ]) {
-      expect(owed([sent('a', 2, STOPPED), carrier], carried)).toEqual([])
-    }
-    expect(owed([sent('a', 2, STOPPED)], { injected: { first: ['a'] } })).toEqual([])
-  })
 })
 
 describe('what one delivery holds', () => {
   it('fits beside the send, newest first; one too large for any send never holds back the rest', () => {
     const largest = 'x'.repeat(MAX_PROMPT_BYTES - STOPPED_MESSAGE_FRAMING_BYTES - 5)
-    const tooLarge = 'x'.repeat(262_000)
+    const tooLarge = 'x'.repeat(MAX_PROMPT_BYTES)
     expect(
       owed([sent('a', 2, STOPPED), sent('largest', 3, STOPPED), sent('tooLarge', 4, STOPPED)], {
         bodies: { largest: message(largest), tooLarge: message(tooLarge) }

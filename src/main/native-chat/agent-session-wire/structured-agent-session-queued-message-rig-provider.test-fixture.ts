@@ -25,9 +25,6 @@ export type QueuedRigProviderOptions = {
   stopEndsSession?: true
   /** Its child never answers its start, so it runs nothing it is handed. */
   startUnanswered?: true
-  /** Its agent takes stopped messages by injection into its log, as Codex; otherwise its sends
-   *  carry them. */
-  injectsStoppedHistory?: true
 }
 
 export function createQueuedRigProvider(
@@ -54,10 +51,6 @@ export function createQueuedRigProvider(
   const closeSession: Mock<NonNullable<StructuredAgentSessionAdapter['closeSession']>> = vi.fn(
     async () => true
   )
-  // Stopped messages written into the agent's log, as Codex takes them.
-  const injectStoppedMessages: Mock<
-    NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']>
-  > = vi.fn(async () => ({ outcome: 'accepted' as const }))
   let events: StructuredAgentSessionEventSink | undefined
 
   const adapter: StructuredAgentSessionAdapter = {
@@ -108,10 +101,7 @@ export function createQueuedRigProvider(
     ...(options.rewind
       ? { rewind: options.rewind, rewindSupport: () => ({ supported: true as const }) }
       : {}),
-    ...(options.recoverRewind ? { recoverRewind: options.recoverRewind } : {}),
-    ...(options.injectsStoppedHistory
-      ? { injectsStoppedMessages: () => true, injectStoppedMessages }
-      : {})
+    ...(options.recoverRewind ? { recoverRewind: options.recoverRewind } : {})
   }
 
   /** What the provider's translator writes when a /compact's turn ends, as a success. */
@@ -154,7 +144,6 @@ export function createQueuedRigProvider(
   return {
     adapter,
     dispatch,
-    injectStoppedMessages,
     starts,
     holdNextStart,
     failNextStart,

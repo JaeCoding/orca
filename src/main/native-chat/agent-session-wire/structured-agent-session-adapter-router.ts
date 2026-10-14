@@ -71,22 +71,6 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   dispatch: StructuredAgentSessionAdapter['dispatch'] = (input) =>
     this.owner(input.sessionId).dispatch(input)
 
-  injectsStoppedMessages: NonNullable<StructuredAgentSessionAdapter['injectsStoppedMessages']> = (
-    sessionId
-  ) => this.liveOwnerOrNull(sessionId)?.injectsStoppedMessages?.(sessionId) ?? false
-
-  injectStoppedMessages: NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']> = (
-    input
-  ) => {
-    const inject = this.owner(input.sessionId).injectStoppedMessages
-    return inject
-      ? inject(input)
-      : Promise.resolve({
-          outcome: 'refused' as const,
-          reason: 'this agent cannot inject stopped messages'
-        })
-  }
-
   /** The owner's declared rewind, narrowed by its adapter for this session; never widened. */
   rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = (
     sessionId,

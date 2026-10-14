@@ -45,10 +45,7 @@ import type { StructuredAgentSessionLogger } from './structured-agent-session-lo
 import { isAgentSessionAttachmentExpiredError } from '../agent-session-attachments/agent-session-attachment-claims'
 import { CommandReceiptExistsError } from '../agent-session-journal/command-receipt-transaction'
 import type { StructuredAgentRegistry } from './structured-agent-registry'
-import {
-  carriedStoppedHistory,
-  injectStoppedHistory
-} from './structured-agent-session-stopped-history-selection'
+import { carriedStoppedHistory } from './structured-agent-session-stopped-history-selection'
 import { withStoppedHistory } from '../../../shared/agent-session-stopped-history'
 export { performSetOption } from './structured-agent-session-turns-options'
 export { performPrompt } from './structured-agent-session-turns-prompt'
@@ -207,10 +204,7 @@ export async function performSend(
   }
 }
 
-/** A message's handover also delivers the stopped messages owed, logging what came of them. */
-export type AgentSessionHandoverContext = StructuredAgentSessionCommandHandoverContext & {
-  logger: StructuredAgentSessionLogger
-}
+export type AgentSessionHandoverContext = StructuredAgentSessionCommandHandoverContext
 
 /**
  * Hands one queued submission to the provider. The `dispatch{pending}` row goes first: a crash
@@ -235,16 +229,9 @@ export async function handOverSubmission(
     await handOverStructuredAgentSessionCommand(ctx, submission, body)
     return
   }
-  // The message joins the turn running at handover, a steer, or opens its own. A new turn first
-  // delivers the stopped messages owed to the agent: injected into its own log, or carried in this
-  // send and named on this same row before anything is written.
-  if (ctx.adapter.injectsStoppedMessages?.(ctx.sessionId)) {
-    await injectStoppedHistory(ctx, submission, body)
-  }
-  // Asked again: an agent that proved it cannot inject gets them carried in this send instead.
-  const carried = ctx.adapter.injectsStoppedMessages?.(ctx.sessionId)
-    ? null
-    : carriedStoppedHistory(ctx, submission, body)
+  // The message joins the turn running at handover, a steer, or opens its own. A new turn carries
+  // the stopped messages owed to the agent, named on this same row before anything is written.
+  const carried = carriedStoppedHistory(ctx, submission, body)
   await ctx.journal.resolveDispatch({
     clientMessageId,
     state: 'pending',

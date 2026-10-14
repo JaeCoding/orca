@@ -61,7 +61,6 @@ import {
   journalStopEventRowBuilder
 } from './journal-stop-and-resume-rows'
 import type { AgentJournalEpochReason, JournalStopEvent } from './journal-row-schema'
-import type { JournalStoppedHistory } from './journal-stopped-message-injections'
 import type {
   JournalOperationReceipt,
   JournalRowTransactionHook,
@@ -104,8 +103,6 @@ export class AgentSessionJournal {
   /** A person's Stop accepted (`journal-stop-acceptance.ts`). */
   readonly stops: JournalStopAcceptor
   readonly context: JournalContextController
-  /** Host-only: what is recorded of stopped messages reaching the agent. */
-  readonly stoppedHistory: JournalStoppedHistory
 
   constructor(options: AgentSessionJournalOptions) {
     this.identity = options.identity
@@ -150,7 +147,6 @@ export class AgentSessionJournal {
     this.stops = collaborators.stops
     this.restore = collaborators.restore
     this.context = collaborators.context
-    this.stoppedHistory = collaborators.stoppedHistory
   }
 
   get epoch(): string {
@@ -215,6 +211,10 @@ export class AgentSessionJournal {
   /** One reduced item's body by its journal key, for a writer revising a row it can name. */
   itemBody = (itemId: string): AgentJournalItemBody | null =>
     this.state.items.get(itemId)?.body ?? null
+
+  /** Host-only: the stopped messages each handed-over send carried, by its client message id. */
+  stoppedHistoryCarried = (): ReadonlyMap<string, readonly string[]> =>
+    this.state.stoppedHistoryCarried
 
   /** One reduced item with its attribution, for a writer that needs the turn a row joined. */
   item = (itemId: string): AgentJournalRenderItem | null => this.state.items.get(itemId) ?? null

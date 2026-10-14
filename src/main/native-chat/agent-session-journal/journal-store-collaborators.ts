@@ -9,7 +9,6 @@ import type {
 } from '../../../shared/agent-session-journal-types'
 import type { JournalHostDatabase } from './journal-host-database'
 import { JournalContextController } from './journal-context-controller'
-import { JournalStoppedHistory } from './journal-stopped-message-injections'
 import { JournalEpochController } from './journal-epoch-controller'
 import { JournalItemAppender } from './journal-item-appender'
 import { JournalLifecycleBatchAppender } from './journal-lifecycle-batch-appender'
@@ -61,7 +60,6 @@ export type JournalStoreCollaborators = {
   queuedMessages: JournalQueuedMessages
   stopMarks: JournalStopMarks
   context: JournalContextController
-  stoppedHistory: JournalStoppedHistory
   stops: JournalStopAcceptor
   /** Restores the store's state from disk. Owned here because it needs the same
    *  collaborators the constructor just built. */
@@ -134,7 +132,6 @@ export function createJournalStoreCollaborators(host: JournalStoreHost): Journal
       writer: rowWriter,
       cards: queuedMessages
     }),
-    stoppedHistory: new JournalStoppedHistory({ state: host.state, writer: rowWriter }),
     stops: new JournalStopAcceptor({
       writer: rowWriter,
       state: host.state,
