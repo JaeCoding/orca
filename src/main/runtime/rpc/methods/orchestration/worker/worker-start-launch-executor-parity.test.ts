@@ -197,6 +197,7 @@ describe('a fresh worker through the launch executor', () => {
       startupAgent: 'claude',
       launchSource: 'orchestration',
       title: 'worker-task_1',
+      tabPosition: 'first',
       surfaceOwner: false
     })
     expect(f.stages).toEqual(['worktree_creating', 'worktree_created', 'terminal_creating'])
