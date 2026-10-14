@@ -51,6 +51,14 @@ export function WorktreeJumpPaletteWorkspaceTabRow({
       </span>
     ) : result.contentType === 'terminal' ? (
       <SquareTerminal className="size-3.5" aria-hidden="true" />
+    ) : result.contentType === 'agent-session' ? (
+      <span
+        className="inline-flex"
+        data-agent-icon={result.occupantAgent ?? 'agent-session'}
+        aria-hidden="true"
+      >
+        <AgentIcon agent={result.occupantAgent} size={14} />
+      </span>
     ) : (
       <FileText className="size-3.5" aria-hidden="true" />
     )

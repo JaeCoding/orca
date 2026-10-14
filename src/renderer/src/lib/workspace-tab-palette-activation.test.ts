@@ -61,6 +61,7 @@ const mocks = vi.hoisted(() => {
   return {
     store,
     activateAndRevealWorkspace: vi.fn(),
+    activateStructuredAgentSessionTab: vi.fn(() => true),
     activateWebRuntimeSessionTab: vi.fn(),
     focusTerminalTabSurface: vi.fn(),
     getRuntimeEnvironmentIdForWorktree: vi.fn(),
@@ -76,6 +77,10 @@ vi.mock('@/store', () => ({
 
 vi.mock('@/lib/focus-terminal-tab-surface', () => ({
   focusTerminalTabSurface: mocks.focusTerminalTabSurface
+}))
+
+vi.mock('@/lib/structured-agent-session-tab-activation', () => ({
+  activateStructuredAgentSessionTab: mocks.activateStructuredAgentSessionTab
 }))
 
 vi.mock('@/lib/worktree-runtime-owner', () => ({
@@ -356,6 +361,106 @@ describe('activateWorkspaceTabPaletteResult', () => {
     expect(mocks.store.setActiveFile).toHaveBeenCalledWith(entityId)
     expect(mocks.store.activateTab).toHaveBeenLastCalledWith(tabId, { worktreeId: 'wt-1' })
     expect(mocks.store.setActiveTabType).toHaveBeenCalledWith('editor', 'wt-1')
+  })
+
+  it('activates agent-session tabs through the shared structured session helper', () => {
+    mocks.store.unifiedTabsByWorktree = {
+      'wt-1': [
+        {
+          id: 'structured-agent-session-omp_okr',
+          entityId: 'omp_okr',
+          groupId: 'group-1',
+          worktreeId: 'wt-1',
+          contentType: 'agent-session',
+          agentSessionAgent: 'omp',
+          label: 'OKR填写地址查询',
+          customLabel: null,
+          color: null,
+          sortOrder: 0,
+          createdAt: 0
+        }
+      ]
+    }
+
+    expect(
+      activateWorkspaceTabPaletteResult(
+        makeResult({
+          tabId: 'structured-agent-session-omp_okr',
+          entityId: 'omp_okr',
+          contentType: 'agent-session'
+        })
+      )
+    ).toEqual({ status: 'activated' })
+
+    expect(mocks.activateStructuredAgentSessionTab).toHaveBeenCalledWith({
+      worktreeId: 'wt-1',
+      tabId: 'structured-agent-session-omp_okr'
+    })
+    expect(mocks.store.setActiveFile).not.toHaveBeenCalled()
+    expect(mocks.store.setActiveTabType).not.toHaveBeenCalledWith('editor', 'wt-1')
+    expect(mocks.focusTerminalTabSurface).not.toHaveBeenCalled()
+  })
+
+  it('does not require an open file for agent-session tabs', () => {
+    mocks.store.unifiedTabsByWorktree = {
+      'wt-1': [
+        {
+          id: 'structured-agent-session-omp_okr',
+          entityId: 'omp_okr',
+          groupId: 'group-1',
+          worktreeId: 'wt-1',
+          contentType: 'agent-session',
+          agentSessionAgent: 'omp',
+          label: 'OKR填写地址查询',
+          customLabel: null,
+          color: null,
+          sortOrder: 0,
+          createdAt: 0
+        }
+      ]
+    }
+    mocks.store.openFiles = []
+
+    expect(
+      activateWorkspaceTabPaletteResult(
+        makeResult({
+          tabId: 'structured-agent-session-omp_okr',
+          entityId: 'omp_okr',
+          contentType: 'agent-session'
+        })
+      )
+    ).toEqual({ status: 'activated' })
+  })
+
+  it('returns missing-tab when the structured session tab vanished mid-activation', () => {
+    mocks.store.unifiedTabsByWorktree = {
+      'wt-1': [
+        {
+          id: 'structured-agent-session-omp_okr',
+          entityId: 'omp_okr',
+          groupId: 'group-1',
+          worktreeId: 'wt-1',
+          contentType: 'agent-session',
+          agentSessionAgent: 'omp',
+          label: 'OKR填写地址查询',
+          customLabel: null,
+          color: null,
+          sortOrder: 0,
+          createdAt: 0
+        }
+      ]
+    }
+    mocks.activateStructuredAgentSessionTab.mockReturnValue(false)
+
+    expect(
+      activateWorkspaceTabPaletteResult(
+        makeResult({
+          tabId: 'structured-agent-session-omp_okr',
+          entityId: 'omp_okr',
+          contentType: 'agent-session'
+        })
+      )
+    ).toEqual({ status: 'failed', reason: 'missing-tab' })
   })
 
   it('returns stale failures before focusing a removed group or tab', () => {

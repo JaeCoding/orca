@@ -35,6 +35,11 @@ export function shouldIncludeOpenTabInRecentSection({
   if (!isCurrentOpenTabItem(item)) {
     return true
   }
+  // Why: the badge gate below reads terminal-tab attention state; agent-session
+  // rows have no terminal tab and are always offered, like non-current rows.
+  if (item.type === 'workspace-tab' && item.result.contentType === 'agent-session') {
+    return true
+  }
   if (!row.terminalTab) {
     return false
   }

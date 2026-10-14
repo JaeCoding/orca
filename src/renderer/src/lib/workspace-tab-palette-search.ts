@@ -19,6 +19,7 @@ export type WorkspaceTabContentType =
   | 'diff'
   | 'conflict-review'
   | 'check-details'
+  | 'agent-session'
 
 export type SearchableWorkspaceTab = {
   tab: Tab & { contentType: WorkspaceTabContentType }

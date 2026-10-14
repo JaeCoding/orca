@@ -644,4 +644,144 @@ describe('workspace-tab-palette-search', () => {
     })
     expect(hyphenated[0]?.occupantAgent).toBeNull()
   })
+
+  it('indexes agent-session tabs by their conversation label without a terminal record', () => {
+    const entries = buildEntries({
+      tabsByWorktree: { 'wt-1': [] },
+      unifiedTabsByWorktree: {
+        'wt-1': [
+          makeUnifiedTab({
+            id: 'structured-agent-session-omp_okr',
+            entityId: 'omp_okr',
+            contentType: 'agent-session',
+            agentSessionAgent: 'omp',
+            label: 'OKR填写地址查询'
+          })
+        ]
+      },
+      groupsByWorktree: {
+        'wt-1': [
+          makeGroup({
+            activeTabId: 'structured-agent-session-omp_okr',
+            tabOrder: ['structured-agent-session-omp_okr']
+          })
+        ]
+      },
+      activeTabType: 'agent-session',
+      activeTabTypeByWorktree: { 'wt-1': 'agent-session' }
+    })
+
+    expect(entries.map((entry) => entry.tab.contentType)).toEqual(['agent-session'])
+    expect(searchWorkspaceTabs(entries, 'OKR')[0]).toMatchObject({
+      tabId: 'structured-agent-session-omp_okr',
+      entityId: 'omp_okr',
+      contentType: 'agent-session',
+      title: 'OKR填写地址查询',
+      secondaryText: '',
+      occupantAgent: 'omp'
+    })
+  })
+
+  it('finds agent-session rows through type aliases and honors custom labels', () => {
+    const entries = buildEntries({
+      tabsByWorktree: { 'wt-1': [] },
+      unifiedTabsByWorktree: {
+        'wt-1': [
+          makeUnifiedTab({
+            id: 'session-tab-1',
+            entityId: 'session-1',
+            contentType: 'agent-session',
+            agentSessionAgent: 'omp',
+            customLabel: '导师',
+            label: 'OMP > 查看BPM记录并填写内容'
+          })
+        ]
+      }
+    })
+
+    const labeled = searchWorkspaceTabs(entries, '导师')[0]
+    expect(labeled?.title).toBe('导师')
+    const aliased = searchWorkspaceTabs(entries, 'native chat')[0]
+    expect(aliased).toMatchObject({
+      tabId: 'session-tab-1',
+      contentType: 'agent-session',
+      secondaryText: ''
+    })
+  })
+
+  it('stamps the current tab on agent-session rows via the stored active tab type', () => {
+    const entries = buildEntries({
+      tabsByWorktree: { 'wt-1': [] },
+      unifiedTabsByWorktree: {
+        'wt-1': [
+          makeUnifiedTab({
+            id: 'session-tab-1',
+            entityId: 'session-1',
+            contentType: 'agent-session',
+            label: 'OKR填写地址查询'
+          })
+        ]
+      },
+      groupsByWorktree: {
+        'wt-1': [
+          makeGroup({
+            activeTabId: 'session-tab-1',
+            tabOrder: ['session-tab-1']
+          })
+        ]
+      },
+      activeTabType: 'agent-session',
+      activeTabTypeByWorktree: { 'wt-1': 'agent-session' }
+    })
+
+    expect(entries[0]?.isCurrentTab).toBe(true)
+    expect(searchWorkspaceTabs(entries, '')[0]?.isCurrentTab).toBe(true)
+  })
+
+  it('attaches structured session status snippets to agent-session rows', () => {
+    const entries = buildEntries({
+      tabsByWorktree: { 'wt-1': [] },
+      unifiedTabsByWorktree: {
+        'wt-1': [
+          makeUnifiedTab({
+            id: 'structured-agent-session-omp_okr',
+            entityId: 'omp_okr',
+            contentType: 'agent-session',
+            agentSessionAgent: 'omp',
+            label: 'OKR填写地址查询'
+          })
+        ]
+      },
+      agentStatusByPaneKey: {
+        'omp_okr:leaf-a': makeAgentEntry({
+          paneKey: 'omp_okr:leaf-a',
+          tabId: 'omp_okr',
+          prompt: '基于 vivo OKR 系统查询地址'
+        })
+      }
+    })
+
+    expect(searchWorkspaceTabs(entries, 'OKR 系统查询')[0]?.secondaryText).toBe(
+      '基于 vivo OKR 系统查询地址'
+    )
+  })
+
+  it('renders a neutral occupant icon for unknown agent-session providers', () => {
+    const entries = buildEntries({
+      tabsByWorktree: { 'wt-1': [] },
+      unifiedTabsByWorktree: {
+        'wt-1': [
+          makeUnifiedTab({
+            id: 'session-tab-1',
+            entityId: 'session-1',
+            contentType: 'agent-session',
+            agentSessionAgent: 'mystery-agent' as Tab['agentSessionAgent'],
+            label: 'OKR填写地址查询'
+          })
+        ]
+      }
+    })
+
+    expect(entries[0]?.occupantAgent).toBeNull()
+  })
 })

@@ -1,7 +1,3 @@
-import {
-  resolveTerminalTabTitle,
-  resolveUnifiedTabLabel
-} from '../../../shared/tab-title-resolution'
 import type { Tab } from '../../../shared/tab-types'
 import { getEditorDisplayLabel } from '@/components/editor/editor-labels'
 import { buildPaletteTabDocument } from './palette-match/tab-document'
@@ -10,15 +6,17 @@ import {
   isPaletteCurrentWorktree,
   resolvePaletteRepoForWorktree
 } from './palette-repo-resolution'
-import { resolveOpenTabOccupantAgent } from './open-tab-occupant-agent'
 import {
   resolveWorktreeBranchLabel,
   resolveWorktreeDisplayName
 } from './worktree-default-display-name'
+import { buildAgentMetadataTabIndex } from './workspace-tab-agent-metadata'
 import {
-  buildAgentMetadataTabIndex,
-  collectAgentMetadataFromIndex
-} from './workspace-tab-agent-metadata'
+  pushAgentSessionTabEntry,
+  pushTerminalTabEntry,
+  type PaletteTabBaseEntry,
+  type PaletteTabEntryContext
+} from './workspace-tab-palette-type-entries'
 import type {
   BuildSearchableWorkspaceTabsOptions,
   SearchableWorkspaceTab,
@@ -54,7 +52,11 @@ function getActiveUnifiedTabId({
     ? (groupsByWorktree[worktreeId] ?? []).find((group) => group.id === activeGroupId)
     : undefined
   const activeUnifiedTabId = activeGroup?.activeTabId ?? null
-  return activeTabType === 'terminal' || activeTabType === 'editor' ? activeUnifiedTabId : null
+  return activeTabType === 'terminal' ||
+    activeTabType === 'editor' ||
+    activeTabType === 'agent-session'
+    ? activeUnifiedTabId
+    : null
 }
 
 function isCurrentWorkspaceTab({
@@ -86,7 +88,14 @@ function isCurrentWorkspaceTab({
   if (activeUnifiedTabId) {
     return activeUnifiedTabId === tab.id
   }
-  const visibleType = tab.contentType === 'terminal' ? 'terminal' : 'editor'
+  // Why: agent-session tabs have their own visible type; editor-family and
+  // browser/simulator types never own the stored active id of an editor row.
+  const visibleType =
+    tab.contentType === 'terminal'
+      ? 'terminal'
+      : tab.contentType === 'agent-session'
+        ? 'agent-session'
+        : 'editor'
   const storedType = activeTabTypeByWorktree[tab.worktreeId] ?? activeTabType
   if (storedType !== visibleType) {
     return false
@@ -171,6 +180,19 @@ export function buildSearchableWorkspaceTabEntries({
     for (const terminalTab of tabsByWorktree[worktree.id] ?? []) {
       terminalTabs.set(terminalTab.id, terminalTabs.has(terminalTab.id) ? null : terminalTab)
     }
+    const entryContext: PaletteTabEntryContext = {
+      worktreeName,
+      branch,
+      repoName,
+      terminalLayoutsByTabId,
+      agentStatusByPaneKey,
+      retainedAgentsByPaneKey,
+      sleepingAgentSessionsByPaneKey,
+      paneForegroundAgentByPaneKey,
+      worktree,
+      ambiguousWorktreeIds,
+      agentIndex
+    }
 
     const unifiedTabs = unifiedTabsByWorktree[worktree.id] ?? []
     const duplicateTabIds = findDuplicateIds(unifiedTabs)
@@ -190,7 +212,7 @@ export function buildSearchableWorkspaceTabEntries({
       if (seenTabIdentities.has(tabIdentity)) {
         continue
       }
-      const baseEntry = {
+      const baseEntry: PaletteTabBaseEntry = {
         tab,
         worktree,
         repoName,
@@ -212,57 +234,32 @@ export function buildSearchableWorkspaceTabEntries({
       }
       if (tab.contentType === 'terminal') {
         const terminalTab = terminalTabs.get(tab.entityId)
+        // Why null: a duplicate terminal id resolves to null so the ghost row never renders.
         if (terminalTab === null) {
           continue
         }
-        const terminalTitle = terminalTab
-          ? resolveTerminalTabTitle(terminalTab, generatedTitlesEnabled, 'Terminal')
-          : 'Terminal'
-        const title = resolveUnifiedTabLabel(
-          {
-            ...tab,
-            customLabel: tab.customLabel ?? terminalTab?.customTitle ?? null,
-            quickCommandLabel: tab.quickCommandLabel ?? terminalTab?.quickCommandLabel,
-            generatedLabel: tab.generatedLabel ?? terminalTab?.generatedTitle
-          },
-          generatedTitlesEnabled,
-          terminalTitle
-        )
         seenTabIdentities.add(tabIdentity)
-        entries.push({
-          ...baseEntry,
-          title,
-          secondaryText: '',
-          titleSearchText: title,
-          secondarySearchTexts: [],
-          typeSearchAliases: ['terminal tab', 'terminal'],
-          document: buildPaletteTabDocument({
-            id: tab.id,
-            title,
-            secondaryTexts: [],
-            worktreeName,
-            branch,
-            repoName,
-            typeAliases: ['terminal tab', 'terminal']
-          }),
-          agentMetadata: collectAgentMetadataFromIndex(
-            agentIndex,
-            tab.entityId,
-            worktree,
-            ambiguousWorktreeIds
-          ),
-          occupantAgent: resolveOpenTabOccupantAgent({
-            tabId: tab.entityId,
-            title,
-            defaultTitle: terminalTab?.defaultTitle,
-            launchAgent: terminalTab?.launchAgent,
-            layout: terminalLayoutsByTabId?.[tab.entityId],
-            agentStatusByPaneKey,
-            retainedAgentsByPaneKey,
-            sleepingAgentSessionsByPaneKey,
-            paneForegroundAgentByPaneKey
+        entries.push(
+          pushTerminalTabEntry({
+            baseEntry,
+            tab: tab as Tab & { contentType: 'terminal' },
+            terminalTab,
+            generatedTitlesEnabled,
+            context: entryContext
           })
-        })
+        )
+        continue
+      }
+      if (tab.contentType === 'agent-session') {
+        seenTabIdentities.add(tabIdentity)
+        entries.push(
+          pushAgentSessionTabEntry({
+            baseEntry,
+            tab: tab as Tab & { contentType: 'agent-session' },
+            generatedTitlesEnabled,
+            context: entryContext
+          })
+        )
         continue
       }
       const files = openFilesById.get(tab.entityId)
