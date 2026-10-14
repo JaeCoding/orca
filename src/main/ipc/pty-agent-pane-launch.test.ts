@@ -102,9 +102,13 @@ describe('a pane that starts its own agent launch', () => {
     return runtime
   }
 
-  function spawnPane(agentLaunch: AgentPaneLaunchRequest = AI_BUTTON): Promise<unknown> {
+  function spawnPane(
+    agentLaunch: AgentPaneLaunchRequest = AI_BUTTON,
+    pane: Record<string, unknown> = {}
+  ): Promise<unknown> {
     return Promise.resolve(
       handlers.get('pty:spawn')!(null, {
+        ...pane,
         cols: 132,
         rows: 40,
         cwd: '/tmp/pane-launch',
@@ -131,6 +135,29 @@ describe('a pane that starts its own agent launch', () => {
     expect(runtime.reportAgentLaunchPaneVerdict).toHaveBeenCalledWith(PANE_ADDRESS, {
       kind: 'proceed'
     })
+  })
+
+  // The command was quoted for the plan's runtime, so the PTY must run that runtime's shell. The tab's
+  // shell is inferred, not asked for, and would make the planner refuse a WSL-share repo.
+  it("runs the plan's runtime shell, not the tab's, as a host launch does", async () => {
+    const providerSpawn = vi.fn(async (_options: { shellOverride?: string }) => ({
+      id: 'pty-agent'
+    }))
+    const runtime = register(providerSpawn, async () => ({
+      command: 'claude',
+      launchRuntime: {
+        platform: process.platform,
+        pty: { shellOverride: '/bin/planned-shell', terminalWindowsWslDistro: null }
+      }
+    }))
+
+    await spawnPane(AI_BUTTON, { shellOverride: 'cmd.exe' })
+
+    expect(runtime.planAgentPaneLaunch).toHaveBeenCalledWith(
+      worktreeId,
+      expect.not.objectContaining({ shellOverride: expect.anything() })
+    )
+    expect(providerSpawn.mock.calls[0]?.[0].shellOverride).toBe('/bin/planned-shell')
   })
 
   // Orchestration callers, hook evidence and title presence read the launch's token off its PTY.

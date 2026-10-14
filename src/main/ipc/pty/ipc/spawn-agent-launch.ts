@@ -121,8 +121,8 @@ export async function planPaneAgentLaunch(ctx: PtyIpcSpawnState): Promise<void> 
     ...(intent.agentArgs !== undefined ? { agentArgs: intent.agentArgs } : {}),
     ...(launchPreferences ? { launchPreferences } : {}),
     ...(intent.launchSource ? { launchSource: intent.launchSource } : {}),
-    ...(intent.cwd ? { cwd: intent.cwd } : {}),
-    ...(args.shellOverride ? { shellOverride: args.shellOverride } : {})
+    ...(intent.cwd ? { cwd: intent.cwd } : {})
   })
+  ctx.paneAgentLaunch.launchRuntime = planned.launchRuntime
   ctx.args = withPlannedLaunch(args, planned)
 }

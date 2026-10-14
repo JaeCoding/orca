@@ -131,13 +131,13 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
   }
 
   /** Plans an agent launch a window pane's own spawn asks for, with the planner every host launch
-   *  uses; the spawn resolves Qoder's executable itself, for the shell it really runs. */
+   *  uses, including its runtime fact. */
   async planAgentPaneLaunch(
     worktreeId: string,
     opts: TerminalCreateOptions
   ): Promise<TerminalCreateOptions> {
     const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
-    return this.buildAgentTerminalCreateOptions(workspace, opts)
+    return this.resolveAgentTerminalCreateOptions(workspace, opts)
   }
 
   /** Whether a running process holds this pane now: such a pane is attached to, never launched into. */
