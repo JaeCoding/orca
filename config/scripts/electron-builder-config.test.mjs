@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -254,6 +254,10 @@ describe('electron-builder config', () => {
         expect.objectContaining({
           from: 'native/windows-cli-launcher/.build/orca.exe',
           to: 'bin/orca.exe'
+        }),
+        expect.objectContaining({
+          from: 'native/windows-cli-launcher/.build/orca-administrator-restart.exe',
+          to: 'bin/orca-administrator-restart.exe'
         })
       ])
     )
@@ -268,6 +272,37 @@ describe('electron-builder config', () => {
       expect.objectContaining({ to: join('node_modules', 'serve-sim') })
     ])
   })
+
+  it.each(['mac', 'linux'])(
+    'loads Codex TOML parsing after %s runtime pruning',
+    async (platform) => {
+      const resourcesDir = await mkdtemp(join(tmpdir(), 'orca-packaged-codex-toml-'))
+      try {
+        const resource = electronBuilderConfig[platform].extraResources.find(
+          (entry) => entry.to === join('node_modules', 'smol-toml')
+        )
+        expect(resource).toBeDefined()
+        await copyFiles([
+          new FileMatcher(resource.from, join(resourcesDir, resource.to), (value) => value)
+        ])
+        require('../packaged-runtime-node-modules.cjs').prunePackagedRuntimeNodeModules(
+          resourcesDir,
+          platform === 'mac' ? 'darwin' : 'linux',
+          process.arch
+        )
+        const stagedRequire = createRequire(join(resourcesDir, 'out', 'main', 'codex', 'trust.cjs'))
+        expect(await realpath(stagedRequire.resolve('smol-toml'))).toBe(
+          await realpath(join(resourcesDir, resource.to, 'dist', 'index.cjs'))
+        )
+        const { parse } = stagedRequire('smol-toml')
+        expect(parse('[projects."/workspace"]\ntrust_level = "trusted"\n')).toEqual({
+          projects: { '/workspace': { trust_level: 'trusted' } }
+        })
+      } finally {
+        await rm(resourcesDir, { recursive: true, force: true })
+      }
+    }
+  )
 
   // Why: serve-sim's addon is a Mach-O, and Windows signing rejects every *.node that is not PE.
   it('keeps serve-sim out of the Windows and Linux runtime closures', () => {
@@ -627,10 +662,21 @@ describe('arch-aware packaging guard', () => {
       expect(() => packHost(OTHER_ARCH)).toThrow(otherSherpa)
       expect(() => packHost(OTHER_ARCH)).toThrow('pnpm install:release')
       expect(() => packHost(HOST_ARCH)).not.toThrow()
-    } else {
+    } else if (process.platform !== 'win32') {
       expect(() => packHost(OTHER_ARCH)).not.toThrow()
     }
   })
+
+  // The host's own build is the foreign-arch case: a Windows checkout compiles these for its CPU only.
+  it.runIf(process.platform === 'win32')(
+    'refuses a Windows workspace addon built for another architecture',
+    () => {
+      for (const binary of ['orca_windows_registry.node', 'orca_windows_security.node']) {
+        expect(() => packHost(OTHER_ARCH)).toThrow(`${binary} for ${OTHER_ARCH_NAME}`)
+      }
+      expect(() => packHost(HOST_ARCH)).not.toThrow()
+    }
+  )
 
   it('requires installed Windows addons for Windows packaging', () => {
     const windowsAddon = electronBuilderConfig.win.extraResources.some(
@@ -643,6 +689,8 @@ describe('arch-aware packaging guard', () => {
     } else {
       expect(packWindows).toThrow('@vscode/windows-process-tree')
       expect(packWindows).toThrow('Windows packaging requires a Windows host')
+      // A workspace link exists everywhere; only its compiled binary proves the addon will load.
+      expect(packWindows).toThrow('@orca/windows-security')
     }
   })
 })
