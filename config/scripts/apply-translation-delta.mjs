@@ -5,6 +5,7 @@ import process from 'node:process'
 import { repairTranslatedValue } from './locale-translation-policy.mjs'
 
 const LOCALES_DIR = path.join('src', 'renderer', 'src', 'i18n', 'locales')
+const SUPPORTED_LOCALES = new Set(['es', 'fr', 'ja', 'ko', 'zh'])
 const PLACEHOLDER_RE = /\{\{[^}]+\}\}/g
 
 function placeholders(value) {
@@ -42,6 +43,10 @@ async function main() {
   const enCatalog = JSON.parse(await fs.readFile(path.join(root, LOCALES_DIR, 'en.json'), 'utf8'))
 
   for (const [locale, entries] of Object.entries(translations)) {
+    // Why: the locale becomes a path segment, so an unchecked key could write outside LOCALES_DIR.
+    if (!SUPPORTED_LOCALES.has(locale)) {
+      throw new Error(`Unsupported locale: ${locale}`)
+    }
     const localePath = path.join(root, LOCALES_DIR, `${locale}.json`)
     const localeCatalog = JSON.parse(await fs.readFile(localePath, 'utf8'))
     let added = 0
@@ -77,7 +82,10 @@ async function main() {
       setEntry(localeCatalog, key, repaired)
       added += 1
     }
-    await fs.writeFile(localePath, `${JSON.stringify(localeCatalog, null, 2)}\n`, 'utf8')
+    // Why: write-then-rename so an interrupted run can't leave the catalog truncated.
+    const tmpPath = `${localePath}.${process.pid}.tmp`
+    await fs.writeFile(tmpPath, `${JSON.stringify(localeCatalog, null, 2)}\n`, 'utf8')
+    await fs.rename(tmpPath, localePath)
     console.log(`[${locale}] added ${added}, skipped ${skipped}`)
   }
 }
