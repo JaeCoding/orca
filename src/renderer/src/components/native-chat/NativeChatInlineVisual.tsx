@@ -29,9 +29,9 @@ export function NativeChatVisualUnavailable(): React.JSX.Element {
 }
 
 /** Opens the visual like any HTML file of the chat's workspace: rendered, its source a click away. */
-function openNativeChatVisualFile(worktreeId: string, path: string | null): void {
-  const plan = path ? openFileInBrowserTab({ filePath: path, worktreeId }) : null
-  if (plan?.status === 'unsupported') {
+function openNativeChatVisualFile(worktreeId: string, path: string): void {
+  const plan = openFileInBrowserTab({ filePath: path, worktreeId })
+  if (plan.status === 'unsupported') {
     toast.error(plan.message)
   }
 }

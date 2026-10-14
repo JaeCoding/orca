@@ -103,17 +103,16 @@ describe('agentSession.readVisual', () => {
   it('serves the folder a visual names as a file root, and nothing outside it', async () => {
     await writeVisual('chart.html', 'a')
     const folder = nativeChatScratchFolderFor(stateDirectory, SESSION)
-    const foreign = nativeChatScratchFolderFor(join(stateDirectory, 'elsewhere'), SESSION)
-    await mkdir(foreign, { recursive: true })
+    // Same suffix but inside the authorized root, so only the selector's exact match refuses it.
+    const foreign = nativeChatScratchFolderFor(join(folder, 'nested'), SESSION)
+    await Promise.all([mkdir(foreign, { recursive: true }), mkdir(join(stateDirectory, 'out'))])
     await writeFile(join(foreign, 'x.html'), 'x')
-    await symlink(foreign, join(folder, 'out'), 'junction')
+    await writeFile(join(stateDirectory, 'out', 'x.html'), 'x')
+    await symlink(join(stateDirectory, 'out'), join(folder, 'out'), 'junction')
     const path = join(folder, 'chart.html')
+    const visual = { sessionId: SESSION, file: 'chart.html' }
     const readVisual = (params: { knownRevision?: string }) =>
-      call(
-        'agentSession.readVisual',
-        { sessionId: SESSION, file: 'chart.html', ...params },
-        STRUCTURED_CLIENT
-      )
+      call('agentSession.readVisual', { ...visual, ...params }, STRUCTURED_CLIENT)
     expect(await readVisual({})).toMatchObject({ result: { html: 'a', path } })
     const knownRevision = nativeChatVisualRevision(Buffer.from('a'))
     expect(await readVisual({ knownRevision })).toMatchObject({ result: { unchanged: true, path } })

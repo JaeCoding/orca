@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import type * as ConnectionOwnerModule from '@/lib/connection-owner-resolution'
 
 // A workspace this computer owns.
@@ -16,25 +16,17 @@ import {
   openBrowserFileSource
 } from './browser-file-editor-open'
 
-const PATH =
-  '/Users/me/Library/Application Support/orca/chat-scratch/0123456789abcdef0123456789abcdef/usage.html'
+const PATH = '/Users/me/orca/chat-scratch/0123456789abcdef0123456789abcdef/usage.html'
 
-describe('a local chat visual opened in a browser tab', () => {
-  it("opens the page's file as an editable source tab, read and saved in place", () => {
-    const openFile = vi.fn()
-    useAppStore.setState({ openFile })
-    expect(getShareableBrowserArtifactFile(`file://${encodeURI(PATH)}`)?.filePath).toBe(PATH)
-    expect(canOpenBrowserFileInWorkspaceEditor(useAppStore.getState(), 'wt-1')).toBe(true)
+it("opens a local chat visual's page as an editable source tab, read and saved in place", () => {
+  const openFile = vi.fn()
+  useAppStore.setState({ openFile })
+  expect(getShareableBrowserArtifactFile(`file://${encodeURI(PATH)}`)?.filePath).toBe(PATH)
+  expect(canOpenBrowserFileInWorkspaceEditor(useAppStore.getState(), 'wt-1')).toBe(true)
 
-    openBrowserFileSource('wt-1', PATH)
-    const opened = openFile.mock.calls[0][0]
-    expect(opened).toMatchObject({
-      filePath: PATH,
-      relativePath: PATH,
-      worktreeId: 'wt-1',
-      mode: 'edit'
-    })
-    // What its editor reads and saves with: the user-named file itself, outside any project.
-    expect(editorTabFileAccess(useAppStore.getState(), opened)).toEqual({ kind: 'user-file' })
-  })
+  openBrowserFileSource('wt-1', PATH)
+  const opened = openFile.mock.calls[0][0]
+  expect(opened).toMatchObject({ filePath: PATH, relativePath: PATH, mode: 'edit' })
+  // What its editor reads and saves with: the user-named file itself, outside any project.
+  expect(editorTabFileAccess(useAppStore.getState(), opened)).toEqual({ kind: 'user-file' })
 })

@@ -1,5 +1,5 @@
 import { resolve, dirname, basename } from 'node:path'
-import { readlink, realpath } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import type { Store } from '../persistence'
 import { PATH_OUTSIDE_ALLOWED_DIRECTORIES } from '../../shared/local-file-access'
 import { getAllowedRoots } from './filesystem-allowed-roots'
@@ -129,11 +129,9 @@ async function resolveAuthorizedMissingPath(
       if (!isENOENT(error)) {
         throw error
       }
-      const linkTarget = await readDanglingLinkTarget(existingAncestor)
-      if (linkTarget !== undefined) {
-        // Why: a write would follow the link and create its target, so authorize the target instead.
-        existingAncestor = resolve(dirname(existingAncestor), linkTarget)
-        continue
+      if (await isSymlink(existingAncestor)) {
+        // Why: realpath can't say where a dangling link leads, but a write follows it and creates its target.
+        throw new Error(PATH_ACCESS_DENIED_MESSAGE)
       }
       const parent = dirname(existingAncestor)
       if (parent === existingAncestor) {
@@ -146,13 +144,12 @@ async function resolveAuthorizedMissingPath(
   }
 }
 
-/** The target of a link that `realpath` couldn't resolve; undefined when nothing is at the path. */
-async function readDanglingLinkTarget(path: string): Promise<string | undefined> {
+async function isSymlink(path: string): Promise<boolean> {
   try {
-    return await readlink(path)
+    return (await lstat(path)).isSymbolicLink()
   } catch (error) {
     if (isENOENT(error)) {
-      return undefined
+      return false
     }
     throw error
   }
