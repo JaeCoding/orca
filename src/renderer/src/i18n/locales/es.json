@@ -5605,7 +5605,8 @@
           "219ebf1961": "Nombre de rama",
           "folderPathIdentity": "Rama / ruta de carpeta",
           "cli": "Orca CLI",
-          "workspaceOptions": "Opciones de espacio de trabajo"
+          "workspaceOptions": "Opciones de espacio de trabajo",
+          "agentModel": "Modelos de agentes"
         },
         "SshTargetRow": {
           "4677394048": "Conectando…",

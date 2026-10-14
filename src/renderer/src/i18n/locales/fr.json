@@ -5740,7 +5740,8 @@
           "219ebf1961": "Nom de branche",
           "folderPathIdentity": "Branche / chemin de dossier",
           "cli": "Orca CLI",
-          "workspaceOptions": "Options de l'espace de travail"
+          "workspaceOptions": "Options de l'espace de travail",
+          "agentModel": "Modèles des agents"
         },
         "SshTargetRow": {
           "4677394048": "Connexion…",

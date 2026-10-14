@@ -85,6 +85,7 @@ function buildMockStoreState(): Record<string, unknown> {
     terminalLayoutsByTabId: {},
     ptyIdsByTabId: {},
     runtimePaneTitlesByTabId: {},
+    worktreeCardProperties: [],
     sendPromptToSidebarAgentTarget: vi.fn(),
     settings: {
       promptCacheTimerEnabled: true,

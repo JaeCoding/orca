@@ -57,6 +57,7 @@ export const WORKTREE_CARD_PROPERTIES = [
   'comment',
   'ports',
   'inline-agents',
+  'agent-model',
   'host'
 ] as const satisfies readonly WorktreeCardProperty[]
 

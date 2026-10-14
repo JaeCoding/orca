@@ -1,8 +1,12 @@
+/** @vitest-environment happy-dom */
 import { renderToStaticMarkup } from 'react-dom/server'
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
 import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
+import { useAppStore } from '@/store'
 import { TooltipProvider } from '../ui/tooltip'
 import DashboardAgentRow from './DashboardAgentRow'
 import type { DashboardAgentRow as DashboardAgentRowData } from './useDashboardData'
@@ -146,12 +150,44 @@ describe('DashboardAgentRow', () => {
     expect(markup).not.toContain('You are working inside Orca')
   })
 
-  it('shows the active model beside the agent label', () => {
+  it('hides the model pill unless the agent-model card property is enabled', () => {
     const markup = renderRow(makeAgent({}, { model: 'gpt-5.4-mini' }))
 
+    expect(markup).not.toContain('gpt-5.4-mini')
+  })
+
+  it('shows the active model beside the agent label when the agent-model property is on', async () => {
+    // Why client render: renderToStaticMarkup reads the zustand initial snapshot,
+    // which setState cannot change, so the live property is only visible via a root render.
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const seed: Partial<Parameters<typeof useAppStore.setState>[0]> = {
+      worktreeCardProperties: ['agent-model']
+    }
+    useAppStore.setState(seed)
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    let markup = ''
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <DashboardAgentRow
+            agent={makeAgent({}, { model: 'gpt-5.4-mini' })}
+            onDismiss={vi.fn()}
+            onActivate={vi.fn()}
+            now={NOW}
+            hideIdentityIcon
+            hideExpand
+          />
+        </TooltipProvider>
+      )
+    })
+    markup = container.innerHTML
+    await act(async () => {
+      root.unmount()
+    })
     expect(markup).toContain('title="gpt-5.4-mini"')
     expect(markup).toContain('>gpt-5.4-mini</span>')
-    expect(classTokens(markup)).toContain('font-mono')
+    expect(markup).toContain('font-mono')
   })
 
   it('uses the hover background as the focused-pane row highlight', () => {

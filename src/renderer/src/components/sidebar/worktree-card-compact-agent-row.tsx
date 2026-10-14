@@ -3,6 +3,7 @@ import { DashboardAgentChildDisclosure } from '@/components/dashboard/DashboardA
 import { AgentStateDot, agentStateLabel } from '@/components/AgentStateDot'
 import { AgentChildRowContent } from '@/components/AgentChildRowContent'
 import type { DashboardAgentRow as DashboardAgentRowData } from '@/components/dashboard/useDashboardData'
+import { useAppStore } from '@/store'
 import { AgentIcon } from '@/lib/agent-catalog'
 import { agentTypeToIconAgent, formatAgentTypeLabel } from '@/lib/agent-status'
 import { cn } from '@/lib/utils'
@@ -145,7 +146,11 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
     secondary
   )
   const rowTitle = `${leadingText}${trailingText ? ` - ${trailingText}` : ''}`
-  const model = agent.entry.model?.trim() ?? ''
+  // Why: provider-prefixed model ids eat the row's title width, so the pill is opt-in
+  // through the card-display menu ('agent-model' property, off by default).
+  const model = useAppStore((s) => s.worktreeCardProperties).includes('agent-model')
+    ? (agent.entry.model?.trim() ?? '')
+    : ''
   const shortTime = getCompactAgentTime(agent, now)
   const cacheTimer = usePromptCacheCountdownForPane(agent.paneKey, cacheTimerActive)
 

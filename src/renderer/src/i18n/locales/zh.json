@@ -5586,7 +5586,8 @@
           "automation": "自动化",
           "folderPathIdentity": "分支 / 文件夹路径",
           "cli": "Orca CLI",
-          "workspaceOptions": "工作区选项"
+          "workspaceOptions": "工作区选项",
+          "agentModel": "Agent 模型"
         },
         "SshTargetRow": {
           "4677394048": "正在连接…",

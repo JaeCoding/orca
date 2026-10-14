@@ -124,6 +124,16 @@ const BASE_WORKTREE_CARD_PROPERTY_OPTIONS: WorktreeCardPropertyOption[] = [
     }
   },
   {
+    id: 'agent-model',
+    properties: ['agent-model'],
+    get label() {
+      return translate(
+        'auto.components.sidebar.SidebarWorkspaceOptionsMenu.agentModel',
+        'Agent models'
+      )
+    }
+  },
+  {
     id: 'host',
     properties: ['host'],
     get label() {

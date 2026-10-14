@@ -25,7 +25,8 @@ vi.mock('@/store', () => ({
       agentSendPopoverTargetMode: null,
       dropAgentStatus: vi.fn(),
       dismissRetainedAgent: vi.fn(),
-      sendPromptToSidebarAgentTarget: vi.fn()
+      sendPromptToSidebarAgentTarget: vi.fn(),
+      worktreeCardProperties: []
     })
 }))
 vi.mock('./useWorktreeAgentRows', () => ({ useWorktreeAgentRows: () => [] }))

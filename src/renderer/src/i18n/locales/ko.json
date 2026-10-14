@@ -5586,7 +5586,8 @@
           "automation": "자동화",
           "folderPathIdentity": "브랜치 / 폴더 경로",
           "cli": "Orca CLI",
-          "workspaceOptions": "워크스페이스 옵션"
+          "workspaceOptions": "워크스페이스 옵션",
+          "agentModel": "에이전트 모델"
         },
         "SshTargetRow": {
           "4677394048": "연결 중…",

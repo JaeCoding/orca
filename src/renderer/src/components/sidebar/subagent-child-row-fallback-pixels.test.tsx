@@ -116,7 +116,7 @@ describe('sidebar child rows from a legacy subagents snapshot', () => {
   it('render the compact rows exactly as before', () => {
     const rows = compactMarkup(parentWith(SUBAGENTS), true)
     expect(rows.map(textOf)).toEqual([
-      'Review the parser - general-purposeclaude-sonnet10m',
+      'Review the parser - general-purpose10m',
       'Explore8m',
       'Working - Agent16m',
       'Approve edits - Agent6m',
@@ -134,11 +134,11 @@ describe('sidebar child rows from a legacy subagents snapshot', () => {
       true
     )
     expect([...stale, ...lost].map(textOf)).toEqual([
-      'Review the parser - No update in 5mclaude-sonnet10m',
+      'Review the parser - No update in 5m10m',
       'Explore - No update in 5m8m',
       'No recent update - No update in 5m16m',
       'Approve edits - No update in 5m6m',
-      'Review the parser - No update in 5mclaude-sonnet10m'
+      'Review the parser - No update in 5m10m'
     ])
     expect([...stale, ...lost]).toMatchSnapshot()
   })

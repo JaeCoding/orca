@@ -16,6 +16,7 @@ import {
   agentVerdictDisplayMark
 } from '../../../../shared/agent-main-agent-verdict'
 import { agentVerdictStatusLine } from '@/lib/agent-verdict-status-line'
+import { useAppStore } from '@/store'
 import type { DashboardAgentRow as DashboardAgentRowData } from './useDashboardData'
 import { getAgentRowPrimaryText } from '@/lib/agent-row-primary-text'
 import { useAgentRowConversationName } from './use-agent-row-conversation-name'
@@ -146,7 +147,11 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
     agentStateLabel(
       agent.childRow?.displayState ?? asDotState(agent.state, agent.entry.workingMode)
     )
-  const model = agent.entry.model?.trim() ?? ''
+  // Why: provider-prefixed model ids eat the row's title width, so the pill is opt-in
+  // through the card-display menu ('agent-model' property, off by default).
+  const model = useAppStore((s) => s.worktreeCardProperties).includes('agent-model')
+    ? (agent.entry.model?.trim() ?? '')
+    : ''
   const isMonitoring = agent.state === 'working' && agent.entry.workingMode === 'monitoring'
   const isWorking = agent.state === 'working' && !isMonitoring
   // Why: 'working' names the running tool and 'waiting' names what an approval is blocked on;

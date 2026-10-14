@@ -69,6 +69,15 @@ export const PROPERTY_OPTIONS: { id: WorktreeCardProperty; label: string }[] = [
     }
   },
   {
+    id: 'agent-model',
+    get label() {
+      return translate(
+        'auto.components.sidebar.SidebarWorkspaceOptionsMenu.agentModel',
+        'Agent models'
+      )
+    }
+  },
+  {
     id: 'host',
     get label() {
       return translate('auto.components.sidebar.SidebarWorkspaceOptionsMenu.host', 'Host')

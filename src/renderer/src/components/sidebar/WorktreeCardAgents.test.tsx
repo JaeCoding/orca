@@ -94,6 +94,7 @@ vi.mock('@/store', () => ({
       agentStatusByPaneKey: {},
       tabsByWorktree: {},
       terminalLayoutsByTabId: {},
+      worktreeCardProperties: [],
       sendPromptToSidebarAgentTarget: vi.fn(),
       settings: {
         promptCacheTimerEnabled: mockPromptCacheTimerEnabled,
