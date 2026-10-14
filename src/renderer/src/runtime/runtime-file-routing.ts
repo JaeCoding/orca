@@ -76,22 +76,23 @@ export function getRemoteFileArgs(
   relativePath: string
 } | null {
   const target = context.target
-  // A chat's scratch file is addressed by its folder on the host, whatever workspace opened it.
-  const scratch = chatScratchFileAddress(absolutePath)
-  const worktreeId = scratch?.worktreeSelector ?? context.worktreeId
-  if (target.kind !== 'environment' || !worktreeId) {
+  if (target.kind !== 'environment' || !context.worktreeId) {
     return null
   }
-  const relativePath =
-    scratch?.relativePath ?? getRelativePathInsideWorktree(context.worktreePath, absolutePath)
-  if (relativePath === null) {
+  const relativePath = getRelativePathInsideWorktree(context.worktreePath, absolutePath)
+  // Outside every workspace, a chat's scratch file is addressed by its folder on the host.
+  const address =
+    relativePath === null
+      ? chatScratchFileAddress(absolutePath)
+      : { worktreeSelector: toRuntimeWorktreeSelector(context.worktreeId), relativePath }
+  if (!address) {
     return null
   }
   return {
     target,
-    worktreeId,
-    worktreeSelector: scratch?.worktreeSelector ?? toRuntimeWorktreeSelector(worktreeId),
-    relativePath
+    worktreeId: context.worktreeId,
+    worktreeSelector: address.worktreeSelector,
+    relativePath: address.relativePath
   }
 }
 

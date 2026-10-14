@@ -44,16 +44,15 @@ export function buildDocPreviewGrantRequest(
     return { owner: { kind: 'ssh', connectionId }, requestBase, root, entryRelativePath }
   }
   const environmentId = getRuntimeEnvironmentIdForWorktree(state, worktreeId)
-  // A chat's scratch folder stands in for the workspace: its host serves it as a file root.
+  // Outside the workspace, a chat's scratch folder stands in for it: its host serves it as a root.
   const base =
-    chatScratchFileAddress(filePath) ??
-    (worktreeRoot && worktreeRelativePath
+    worktreeRoot && worktreeRelativePath
       ? {
           root: worktreeRoot,
           worktreeSelector: toRuntimeWorktreeSelector(worktreeId),
           relativePath: worktreeRelativePath
         }
-      : null)
+      : chatScratchFileAddress(filePath)
   if (!environmentId || !base) {
     return null
   }

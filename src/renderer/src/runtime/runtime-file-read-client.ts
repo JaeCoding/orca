@@ -65,7 +65,8 @@ export async function readRuntimeFileContent({
       grantId: terminalArtifactGrantId
     })
   }
-  const scratch = chatScratchFileAddress(filePath)
+  // A workspace path first; a chat's scratch file is the absolute path no workspace contains.
+  const scratch = canReadRelativeRuntimeFile(relativePath) ? null : chatScratchFileAddress(filePath)
   const readPath = scratch?.relativePath ?? relativePath
   if (!canReadRelativeRuntimeFile(readPath)) {
     throw new Error('Remote file is outside the owning runtime worktree')

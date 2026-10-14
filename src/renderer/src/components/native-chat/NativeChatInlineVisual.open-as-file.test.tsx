@@ -33,6 +33,8 @@ import { ORCA_EDITOR_FILE_SAVED_EVENT } from '@/components/editor/editor-autosav
 import { buildDocPreviewGrantRequest } from '@/lib/doc-preview-grants'
 import { readRuntimeFileContent } from '@/runtime/runtime-file-read-client'
 import { writeRuntimeFile } from '@/runtime/runtime-file-mutation-client'
+import { getRemoteFileArgs } from '@/runtime/runtime-file-routing'
+import { readDocPreviewArtifactRequest } from '@/components/browser-pane/workspace-doc/doc-preview-artifact-share'
 import { useAppStore } from '@/store'
 import { makeWorktree } from '@/store/slices/worktrees-slice-test-fixtures'
 import { FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
@@ -41,13 +43,7 @@ const ROOT = '/home/host/.config/orca/chat-scratch/0123456789abcdef0123456789abc
 const PATH = `${ROOT}/usage.html`
 const ADDRESS = { worktree: `path:${ROOT}`, relativePath: 'usage.html' }
 const target = { kind: 'environment' as const, environmentId: 'env-1' }
-const visual = (revision: string, html: string) => ({
-  ok: true,
-  revision,
-  sizeBytes: 9,
-  html,
-  path: PATH
-})
+const visual = (revision: string, html: string) => ({ ok: true, revision, html, path: PATH })
 
 afterEach(cleanup)
 
@@ -62,8 +58,7 @@ it('previews, edits and saves a paired chat visual on its host, then shows the s
             : { capabilities: [FILE_MUTATION_OWNERSHIP_RUNTIME_CAPABILITY] }
         )
   )
-  const createBrowserTab = vi.fn()
-  const openFile = vi.fn()
+  const [createBrowserTab, openFile] = [vi.fn(), vi.fn()]
   useAppStore.setState({
     createBrowserTab,
     openFile,
@@ -84,10 +79,9 @@ it('previews, edits and saves a paired chat visual on its host, then shows the s
   // Open: the workspace's document preview, granted through the chat folder's own selector.
   fireEvent.click(await screen.findByRole('button', { name: 'Open in new tab' }))
   expect(createBrowserTab.mock.calls[0][2].docLocation).toMatchObject({ filePath: PATH })
-  expect(buildDocPreviewGrantRequest(useAppStore.getState(), 'wt-1', PATH)).toMatchObject({
-    owner: { kind: 'runtime', worktreeSelector: ADDRESS.worktree, worktreeRoot: ROOT },
-    entryRelativePath: 'usage.html'
-  })
+  const grant = buildDocPreviewGrantRequest(useAppStore.getState(), 'wt-1', PATH)
+  expect(grant?.owner).toMatchObject({ worktreeSelector: ADDRESS.worktree, worktreeRoot: ROOT })
+  await (grant && readDocPreviewArtifactRequest(grant, PATH, 'share-key'))
 
   // Source: the preview's source tab reads and saves on the chat's host by that selector.
   openDocPreviewSource({
@@ -100,13 +94,17 @@ it('previews, edits and saves a paired chat visual on its host, then shows the s
   const opened = { id: 'f1', isDirty: false, ...openFile.mock.calls[0][0] }
   await readRuntimeFileContent({ target, ...opened })
   await writeRuntimeFile({ target, worktreeId: 'wt-1', worktreePath: null }, PATH, '<p>v2</p>')
-  expect(callRuntimeRpc).toHaveBeenCalledWith(target, 'files.read', ADDRESS, expect.anything())
-  expect(callRuntimeRpc).toHaveBeenCalledWith(
-    target,
-    'files.write',
-    expect.objectContaining({ ...ADDRESS, content: '<p>v2</p>' }),
-    expect.anything()
-  )
+  // Share, the editor read and the save use the exact `path:` selector, never `id:path:`.
+  for (const method of ['files.readPreview', 'files.read', 'files.write']) {
+    const params = expect.objectContaining(ADDRESS)
+    expect(callRuntimeRpc).toHaveBeenCalledWith(target, method, params, expect.anything())
+  }
+  // A workspace containing the host's state folder keeps its own address (explorer drops land).
+  const home = getRemoteFileArgs({ target, worktreeId: 'wt-h', worktreePath: '/home/host' }, PATH)
+  expect([home?.worktreeSelector, home?.relativePath]).toEqual([
+    'id:wt-h',
+    PATH.replace('/home/host/', '')
+  ])
 
   // The save lands while a read from before it is in flight: the inline copy reads again after it.
   void readNativeChatVisual({ target, sessionId: 'session-1', file: 'usage.html' })
