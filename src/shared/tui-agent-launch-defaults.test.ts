@@ -36,7 +36,13 @@ describe('tuiAgentArgsBypassPermissions', () => {
     ['grok', '--permission-mode "bypassPermissions now"', false],
     ['grok', '-- --permission-mode bypassPermissions', false],
     ['devin', '--permission-mode bypass --respect-workspace-trust false', true],
-    ['devin', '--permission-mode bypass', false]
+    ['devin', '--permission-mode bypass', false],
+    ['omp', '--approval-mode yolo', true],
+    ['omp', '--model gpt-5.6-sol --approval-mode yolo', true],
+    ['omp', '--approval-mode write', false],
+    ['omp', '--approval-mode', false],
+    ['omp', '--approval-mode "yolo now"', false],
+    ['omp', '-- --approval-mode yolo', false]
   ] as const)('reads %s args %s as %s', (agent, args, expected) => {
     expect(tuiAgentArgsBypassPermissions(agent, args, 'posix')).toBe(expected)
   })

@@ -35,7 +35,9 @@ export const YOLO_TUI_AGENT_ARGS: Partial<Record<TuiAgent, string>> = {
   devin: '--permission-mode bypass --respect-workspace-trust false',
   ante: '--yolo',
   trae: '--yolo',
-  droid: '--auto high'
+  droid: '--auto high',
+  // Why: OMP gates ACP tool calls by `tools.approvalMode`; `yolo` is its bypass-everything mode.
+  omp: '--approval-mode yolo'
 }
 
 export const YOLO_TUI_AGENT_ENV: Partial<Record<TuiAgent, Record<string, string>>> = {

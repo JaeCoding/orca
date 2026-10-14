@@ -60,6 +60,19 @@ describe('tui agent permissions', () => {
     ).toBe('yolo')
   })
 
+  it('resolves one OMP yolo launch as yolo', () => {
+    expect(
+      resolveTuiAgentPermissionMode({
+        agent: 'omp',
+        agentArgs: YOLO_TUI_AGENT_ARGS.omp,
+        agentEnv: {}
+      })
+    ).toBe('yolo')
+    expect(resolveTuiAgentPermissionMode({ agent: 'omp', agentArgs: '', agentEnv: {} })).toBe(
+      'manual'
+    )
+  })
+
   it('resolves one empty Codex launch as manual', () => {
     expect(resolveTuiAgentPermissionMode({ agent: 'codex', agentArgs: '', agentEnv: {} })).toBe(
       'manual'
@@ -80,6 +93,23 @@ describe('tui agent permissions', () => {
         agentDefaultArgs: { muse: '--yolo' },
         agentDefaultEnv: {}
       }).agentDefaultArgs.muse
+    ).toBe('')
+  })
+
+  it('switches OMP between yolo and manual arguments', () => {
+    expect(
+      applyAgentPermissionMode({
+        mode: 'yolo',
+        agentDefaultArgs: { omp: '' },
+        agentDefaultEnv: {}
+      }).agentDefaultArgs.omp
+    ).toBe('--approval-mode yolo')
+    expect(
+      applyAgentPermissionMode({
+        mode: 'manual',
+        agentDefaultArgs: { omp: '--approval-mode yolo' },
+        agentDefaultEnv: {}
+      }).agentDefaultArgs.omp
     ).toBe('')
   })
 
