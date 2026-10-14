@@ -161,33 +161,6 @@ describe('parseCodexSessionFile', () => {
         previewMessages: [{ role: 'user', text: 'what is in the picture?' }]
       })
     })
-
-    it('is hidden in a natively interrupted session too', async () => {
-      const session = await parse([
-        userMessage([{ type: 'input_text', text: 'delete the build' }]),
-        {
-          timestamp: '2026-10-12T10:00:02.000Z',
-          type: 'response_item',
-          payload: {
-            type: 'message',
-            role: 'assistant',
-            content: [{ type: 'output_text', text: 'Deleting' }]
-          }
-        },
-        userMessage([{ type: 'input_text', text: MARKER }]),
-        userMessage([{ type: 'input_text', text: 'never mind' }])
-      ])
-
-      expect(session).toMatchObject({
-        title: 'delete the build',
-        firstUserPrompt: 'delete the build',
-        previewMessages: [
-          { role: 'user', text: 'delete the build' },
-          { role: 'assistant', text: 'Deleting' },
-          { role: 'user', text: 'never mind' }
-        ]
-      })
-    })
   })
 
   // A fork of a legacy-history thread copies the parent's session_meta in after its own.

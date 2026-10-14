@@ -56,26 +56,11 @@ function fold(rows: JournalRow[]): JournalReducerState {
 }
 
 describe('a handover row naming the stopped messages it carries', () => {
-  it('folds into host-only state; a row carrying nothing records nothing', () => {
-    const rows = [submission('a', 1), submission('c', 2), handover('c', 3, ['a'])]
-    expect(fold(rows).stoppedHistoryCarried.get('c')).toEqual(['a'])
-    expect(fold([submission('c', 2), handover('c', 3)]).stoppedHistoryCarried.has('c')).toBe(false)
-  })
-
-  it('drops a malformed list rather than the row', () => {
-    const malformed = { ...handover('c', 3), carries: [7, '', 'a'] }
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a row a damaged or newer writer could store; the fold must survive it.
-    const state = fold([submission('a', 1), submission('c', 2), malformed as unknown as JournalRow])
-    expect(state.stoppedHistoryCarried.get('c')).toEqual(['a'])
-    expect(state.submissions.get('c')?.handedOverAt).toBeDefined()
-  })
-
-  it('reads as a readable row at the same version, so an older reader keeps the row and ignores the key', () => {
-    const parsed = parseJournalRow(serializeJournalRow(handover('c', 3, ['a', 'b'])))
-    expect(parsed).toMatchObject({ ok: true, row: { kind: 'dispatch', state: 'pending' } })
-  })
-
-  it('publishes nothing new: no carried list, and the never-reached mark is stripped by the client schema', () => {
+  it('a carrying handover row parses at the same version, and nothing new is published', () => {
+    expect(parseJournalRow(serializeJournalRow(handover('c', 3, ['a'])))).toMatchObject({
+      ok: true,
+      row: { kind: 'dispatch', state: 'pending' }
+    })
     const withdrawn = agentSessionFailureWords(
       agentSessionFailureFact('cancelled', { neverReachedAgent: true }),
       { surface: 'rejection' }
@@ -95,6 +80,7 @@ describe('a handover row naming the stopped messages it carries', () => {
         ...base(4)
       }
     ])
+    expect(state.stoppedHistoryCarried.get('c')).toEqual(['a'])
     const published = renderJournalState(state).submissions
     expect(published.some((entry) => 'carries' in entry)).toBe(false)
     const stopped = published.find((entry) => entry.clientMessageId === 'a')

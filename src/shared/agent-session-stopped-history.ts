@@ -1,8 +1,9 @@
-// Stopped messages the agent is still owed, derived from the journal on each handover (host only),
-// and delivered with the person's next send that opens a turn: injected into the agent's own log
-// where it can take them (Codex), else carried at the front of that send. One is covered by an
-// injection record that no later row proves refused, or by a carrier's `carries` unless that carrier
-// was refused before anything reached the agent. Words only: a stopped message's images are not replayed.
+// Ordinary messages Orca proves the agent never received, owed to it at most once: derived from the
+// journal on each handover (host only), and delivered with the person's next send that opens a turn:
+// injected into the agent's own log where it can take them (Codex), else carried at the front of
+// that send. One is covered by an injection record that no later row proves refused, or by a
+// carrier's `carries` unless that carrier was refused before anything reached the agent. Words only:
+// a stopped message's images are not replayed.
 
 import { readAgentSessionFailureFact, type SubmissionRejectionKind } from './agent-session-failure'
 import type {

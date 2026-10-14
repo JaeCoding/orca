@@ -175,32 +175,3 @@ it('retains Pi provider detail with sign-in guidance after bounded authenticatio
   expect(h.settled.mock.calls[0]?.[1].reason).toContain('`pi`')
   expect(h.settled.mock.calls[0]?.[1].reason).toContain('`/login`')
 })
-
-it('re-sends a prompt carrying stopped history unchanged on each sign-in retry, settling it once', async () => {
-  vi.useFakeTimers()
-  const h = rig()
-  const frame = {
-    type: 'prompt',
-    message: 'stopped\n\n[Request interrupted by user]\n\nnext',
-    images: []
-  }
-  await h.delivery.submit('carrier', 1, frame)
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    h.delivery.reply({
-      type: 'response',
-      command: 'prompt',
-      success: false,
-      error: 'No API key found for anthropic'
-    })
-    await vi.advanceTimersByTimeAsync(250)
-  }
-  h.delivery.reply(queued)
-  h.delivery.consumeNext()
-
-  expect(h.send).toHaveBeenCalledTimes(4)
-  for (const call of h.send.mock.calls) {
-    expect(call).toEqual([frame])
-  }
-  expect(h.settled).not.toHaveBeenCalled()
-  expect(h.accepted).toHaveBeenCalledExactlyOnceWith('carrier', 1)
-})

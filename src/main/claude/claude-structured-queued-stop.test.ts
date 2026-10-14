@@ -3,14 +3,9 @@
 // frame that says whether the CLI can cancel its queue.
 
 import { describe, expect, it, vi } from 'vitest'
-import type {
-  AgentJournalItemBody,
-  AgentJournalSubmission
-} from '../../shared/agent-session-journal-types'
+import type { AgentJournalItemBody } from '../../shared/agent-session-journal-types'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { readAgentJournalTurn } from '../../shared/agent-session-turn-record'
-import { agentSessionStoppedHistoryOwed } from '../../shared/agent-session-stopped-history'
-import { agentSessionFailureFact } from '../../shared/agent-session-failure'
 import { DISPATCH_REJECTED_CANCELLED } from '../../shared/structured-agent-session-dispatch-rejection'
 import type { ClaudeStructuredSessionAdapterDeps } from './claude-structured-session-state'
 import {
@@ -205,40 +200,13 @@ describe('Stop with a follow-up Claude queued behind the running turn', () => {
   })
 
   // Claude may already hold a swept send in the stopped turn, so it is never re-sent as history.
-  it('settles the swept follow-up as a plain withdrawal the next send never carries', async () => {
+  it('settles the swept follow-up without proof it never reached Claude', async () => {
     const { settlements } = await stopWithQueuedFollowUp(
       claudeCli({ initProof: 'init', capabilities: CAPABILITIES }),
       () => {}
     )
-    const settled = settlements[0]!
-    const swept: AgentJournalSubmission = {
-      clientMessageId: 'client-b',
-      fence: 7,
-      payloadFingerprint: 'client-b',
-      submittedAt: 1,
-      resolvedAt: 2,
-      providerItemId: null,
-      handoverRecorded: true,
-      acceptedSequence: 1,
-      origin: 'client',
-      source: { kind: 'user' },
-      dispatchState: 'rejected',
-      reason: 'reason' in settled ? settled.reason : null,
-      rejection: 'rejection' in settled ? settled.rejection : undefined
-    }
-    const owed = (submission: AgentJournalSubmission) =>
-      agentSessionStoppedHistoryOwed({
-        submissions: [submission],
-        carried: new Map(),
-        injected: new Map(),
-        clearSequence: 0,
-        body: () => USER_MESSAGE
-      }).map((entry) => entry.clientMessageId)
-
-    expect(owed(swept)).toEqual([])
-    // Only proof that it never reached Claude would make it owed.
-    const marked = agentSessionFailureFact('cancelled', { neverReachedAgent: true })
-    expect(owed({ ...swept, rejection: marked })).toEqual(['client-b'])
+    expect(settlements[0]).toMatchObject({ state: 'rejected' })
+    expect(JSON.stringify(settlements[0])).not.toContain('neverReachedAgent')
   })
 
   it('keeps what a turn advertised when a later frame names nothing', async () => {

@@ -16,6 +16,7 @@ import { JournalLifecycleBatchAppender } from './journal-lifecycle-batch-appende
 import type { JournalLoad } from './journal-open'
 import { JournalQueuedMessages } from './journal-queued-messages'
 import { JournalStopMarks } from './journal-stop-marks'
+import { JournalStopAcceptor } from './journal-stop-acceptance'
 import { journalQueuePauseRestatement } from './queued-message-pause'
 import type { JournalReducerState } from './journal-reducer'
 import { JournalRowWriter, type JournalOperationReceipt } from './journal-row-writer'
@@ -61,6 +62,7 @@ export type JournalStoreCollaborators = {
   stopMarks: JournalStopMarks
   context: JournalContextController
   stoppedHistory: JournalStoppedHistory
+  stops: JournalStopAcceptor
   /** Restores the store's state from disk. Owned here because it needs the same
    *  collaborators the constructor just built. */
   restore: () => Promise<void>
@@ -133,6 +135,11 @@ export function createJournalStoreCollaborators(host: JournalStoreHost): Journal
       cards: queuedMessages
     }),
     stoppedHistory: new JournalStoppedHistory({ state: host.state, writer: rowWriter }),
+    stops: new JournalStopAcceptor({
+      writer: rowWriter,
+      state: host.state,
+      liveTurnId: () => host.journal().activeTurnId()
+    }),
     // Behind the stored fact: settles drafts whose consumed submission the loaded journal shows
     // refused (a downgrade wrote no hook), then prunes. Bookkeeping, never failing the open.
     restore: () =>

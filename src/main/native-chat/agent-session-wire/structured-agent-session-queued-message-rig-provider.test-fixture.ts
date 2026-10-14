@@ -58,7 +58,6 @@ export function createQueuedRigProvider(
   const injectStoppedMessages: Mock<
     NonNullable<StructuredAgentSessionAdapter['injectStoppedMessages']>
   > = vi.fn(async () => ({ outcome: 'accepted' as const }))
-  const injectsStoppedMessages = vi.fn((_sessionId: string) => true)
   let events: StructuredAgentSessionEventSink | undefined
 
   const adapter: StructuredAgentSessionAdapter = {
@@ -110,7 +109,9 @@ export function createQueuedRigProvider(
       ? { rewind: options.rewind, rewindSupport: () => ({ supported: true as const }) }
       : {}),
     ...(options.recoverRewind ? { recoverRewind: options.recoverRewind } : {}),
-    ...(options.injectsStoppedHistory ? { injectsStoppedMessages, injectStoppedMessages } : {})
+    ...(options.injectsStoppedHistory
+      ? { injectsStoppedMessages: () => true, injectStoppedMessages }
+      : {})
   }
 
   /** What the provider's translator writes when a /compact's turn ends, as a success. */
@@ -154,7 +155,6 @@ export function createQueuedRigProvider(
     adapter,
     dispatch,
     injectStoppedMessages,
-    injectsStoppedMessages,
     starts,
     holdNextStart,
     failNextStart,
