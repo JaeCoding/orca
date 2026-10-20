@@ -74,6 +74,9 @@ export type AcpStructuredLaunchPartDeps = {
   probeVersion?: typeof probeAgentCliVersion
   /** Orca's data folder on this host, which holds the spec's managed runtime. */
   dataDirectory: string
+  /** Reads the workspace-trust setting at launch time; absent reads as trusted, which only a
+   *  scripted child relies on. */
+  workspaceMcpTrustEnabled?: () => boolean
 } & Pick<AcpLaunchVisualsDeps, 'logger'>
 
 /** What a launch's binary and environment are read from; a catalog probe reads the same. */
@@ -253,7 +256,11 @@ export function acpStructuredLaunchPart(
       : null
     // The chat's own mode, as the host decided it for this start; a start naming none asks.
     const fullAccess = basis.permissionMode === 'full-access'
-    const mcpServers = await resolveAcpLaunchMcpServers(cwd, deps.logger)
+    const mcpServers = await resolveAcpLaunchMcpServers(
+      cwd,
+      deps.logger,
+      () => deps.workspaceMcpTrustEnabled?.() ?? true
+    )
     const head = agentSessionProviderHandleChainHead(record.providerHandleChain)
     return {
       launch: {
@@ -285,4 +292,3 @@ export function acpStructuredLaunchPart(
     }
   }
 }
-

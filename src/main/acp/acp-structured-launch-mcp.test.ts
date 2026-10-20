@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resolveAcpLaunchMcpServers } from './acp-structured-launch-mcp'
+import {
+  filterAcpMcpServersByCapabilities,
+  resolveAcpLaunchMcpServers
+} from './acp-structured-launch-mcp'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -21,6 +24,19 @@ describe('resolveAcpLaunchMcpServers', () => {
     const cwd = workspaceWithConfig(null)
     try {
       expect(await resolveAcpLaunchMcpServers(cwd)).toEqual([])
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('passes no servers when the workspace is not trusted, and never reads the config', async () => {
+    const logger = { warn: vi.fn() }
+    const cwd = workspaceWithConfig(
+      JSON.stringify({ mcpServers: { local: { command: 'node', args: ['server.js'] } } })
+    )
+    try {
+      expect(await resolveAcpLaunchMcpServers(cwd, logger, () => false)).toEqual([])
+      expect(logger.warn).not.toHaveBeenCalled()
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }
@@ -84,5 +100,36 @@ describe('resolveAcpLaunchMcpServers', () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true })
     }
+  })
+})
+
+describe('filterAcpMcpServersByCapabilities', () => {
+  const servers = [
+    { name: 'local', command: 'node', args: [], env: [] },
+    { type: 'http', name: 'remote', url: 'https://mcp.example/mcp', headers: [] },
+    { type: 'sse', name: 'legacy', url: 'https://mcp.example/sse', headers: [] }
+  ] as const
+
+  it('keeps every server for an agent advertising both remote transports', () => {
+    expect(filterAcpMcpServersByCapabilities(servers, { http: true, sse: true })).toEqual(servers)
+  })
+
+  it('drops only the remote transports the agent never advertised', () => {
+    expect(filterAcpMcpServersByCapabilities(servers, { http: true, sse: false })).toEqual([
+      servers[0],
+      servers[1]
+    ])
+    expect(filterAcpMcpServersByCapabilities(servers, { http: false, sse: false })).toEqual([
+      servers[0]
+    ])
+  })
+
+  it('names the dropped count in a warning', () => {
+    const logger = { warn: vi.fn() }
+    filterAcpMcpServersByCapabilities(servers, { http: false, sse: false }, logger)
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Agent does not advertise the transport of some workspace MCP servers; dropped',
+      { scope: 'acp-launch-mcp', dropped: 2 }
+    )
   })
 })

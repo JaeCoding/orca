@@ -12,6 +12,34 @@ import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-
 
 const WORKSPACE_MCP_CONFIG = '.mcp.json'
 
+/** The MCP transports this agent advertised in initialize; stdio needs no advertisement. */
+export type AcpMcpTransportCapabilities = { http: boolean; sse: boolean }
+
+/** The servers this agent can run: remote transports the agent never advertised are dropped with a
+ *  warning, so a strict agent's start cannot fail on a transport it does not know. */
+export function filterAcpMcpServersByCapabilities(
+  servers: readonly McpServer[],
+  capabilities: AcpMcpTransportCapabilities,
+  logger?: StructuredAgentSessionLogger
+): McpServer[] {
+  const supported = servers.filter((server) => {
+    if (!('type' in server)) {
+      return true
+    }
+    return server.type === 'http' ? capabilities.http : capabilities.sse
+  })
+  if (supported.length !== servers.length) {
+    const dropped = servers.length - supported.length
+    logger?.warn('Agent does not advertise the transport of some workspace MCP servers; dropped', {
+      scope: 'acp-launch-mcp',
+      dropped
+    })
+  }
+  return supported
+}
+
+/** One JSON entry's header/env map as the protocol's name-value pairs; an invalid map warns and
+ *  yields none, so one bad entry cannot fail the workspace's other servers. */
 function nameValuePairs(
   raw: unknown,
   server: string,
@@ -96,11 +124,19 @@ function toAcpMcpServer(
   return null
 }
 
-/** The workspace `.mcp.json`'s enabled servers as the session start names them; never throws. */
+/** The workspace `.mcp.json`'s enabled servers as the session start names them; never throws. A
+ *  workspace whose folder Orca does not pre-trust starts no servers: the config is the workspace's,
+ *  so passing it to the agent rides on the same trust that runs the workspace's hooks and settings
+ *  (`agentWorkspaceTrustEnabled`); off, each agent asks for the folder itself, and MCP rides along
+ *  only once the folder is trusted. */
 export async function resolveAcpLaunchMcpServers(
   cwd: string,
-  logger?: StructuredAgentSessionLogger
+  logger?: StructuredAgentSessionLogger,
+  trusted: () => boolean = () => true
 ): Promise<McpServer[]> {
+  if (!trusted()) {
+    return []
+  }
   let content: string
   try {
     content = await readFile(join(cwd, WORKSPACE_MCP_CONFIG), 'utf8')
